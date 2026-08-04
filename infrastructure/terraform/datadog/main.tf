@@ -1,6 +1,6 @@
 locals {
   notifications = join(" ", var.notification_targets)
-  common_tags   = [
+  common_tags = [
     "platform:spanreplay",
     "team:ai-platform",
     "env:${var.environment}",

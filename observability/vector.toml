@@ -1,0 +1,21 @@
+[sources.docker]
+type = "docker_logs"
+include_labels = ["com.spanreplay.platform=spanreplay"]
+
+[transforms.normalize]
+type = "remap"
+inputs = ["docker"]
+source = '''
+.platform = "spanreplay"
+.environment = "local"
+.service = .label."com.spanreplay.service" ?? .container_name
+'''
+
+[sinks.loki]
+type = "loki"
+inputs = ["normalize"]
+endpoint = "http://loki:3100"
+encoding.codec = "json"
+labels.platform = "spanreplay"
+labels.environment = "{{ environment }}"
+labels.service = "{{ service }}"

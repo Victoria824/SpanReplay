@@ -1,0 +1,77 @@
+{
+  "name": "spanreplay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenTelemetry observability and failure replay for production AI agents",
+  "license": "Apache-2.0",
+  "author": "Victoria Liu",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Victoria824/SpanReplay.git"
+  },
+  "homepage": "https://github.com/Victoria824/SpanReplay#readme",
+  "bugs": {
+    "url": "https://github.com/Victoria824/SpanReplay/issues"
+  },
+  "keywords": [
+    "opentelemetry",
+    "llm-observability",
+    "ai-agents",
+    "failure-replay",
+    "llmops",
+    "datadog"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:gateway": "SERVICE_NAME=api-gateway node --import tsx src/bin/service.ts",
+    "dev:agent": "SERVICE_NAME=agent-service node --import tsx src/bin/service.ts",
+    "dev:retrieval": "SERVICE_NAME=retrieval-service node --import tsx src/bin/service.ts",
+    "dev:console": "vite --config console/vite.config.ts",
+    "dev": "node --import tsx scripts/dev.ts",
+    "build": "npm run build:services && npm run build:console",
+    "build:services": "tsc -p tsconfig.build.json",
+    "build:console": "vite build --config console/vite.config.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src console/src tests scripts examples",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "demo": "LOG_LEVEL=silent OTEL_SDK_DISABLED=true SPANREPLAY_REDACT_CONTENT=true node --import tsx scripts/demo.ts",
+    "start": "node dist/src/bin/service.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "@fastify/helmet": "^13.1.0",
+    "@fastify/rate-limit": "^11.2.0",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.79.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.221.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.221.0",
+    "@opentelemetry/resources": "^2.10.0",
+    "@opentelemetry/sdk-metrics": "^2.10.0",
+    "@opentelemetry/sdk-node": "^0.221.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
+    "fastify": "^5.11.2",
+    "pino": "^10.3.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.1.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.8.0",
+    "tsx": "^4.23.5",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.66.0",
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
+  }
+}

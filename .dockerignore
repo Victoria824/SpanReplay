@@ -1,0 +1,9 @@
+node_modules
+dist
+console/dist
+.git
+.github
+data/replays
+*.log
+.terraform
+*.tfstate*

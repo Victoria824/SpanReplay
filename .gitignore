@@ -1,0 +1,13 @@
+node_modules/
+dist/
+console/dist/
+.env
+.env.*
+!.env.example
+data/replays/*.json
+coverage/
+*.log
+.DS_Store
+.terraform/
+*.tfstate
+*.tfstate.*

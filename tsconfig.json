@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023", "DOM"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noUncheckedIndexedAccess": true,
+    "types": ["node", "vitest/globals"],
+    "jsx": "react-jsx"
+  },
+  "include": ["src/**/*.ts", "console/**/*.ts", "console/**/*.tsx", "tests/**/*.ts", "scripts/**/*.ts", "examples/**/*.ts", "vitest.config.ts"]
+}

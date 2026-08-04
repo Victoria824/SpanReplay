@@ -1,0 +1,154 @@
+name: spanreplay
+
+x-service: &service
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  environment: &service-environment
+    NODE_ENV: production
+    DEPLOYMENT_ENVIRONMENT: local
+    LOG_LEVEL: info
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    SPANREPLAY_REDACT_CONTENT: "true"
+    SPANREPLAY_API_KEY: ${SPANREPLAY_API_KEY:-}
+    CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4173}
+    RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-120}
+  depends_on:
+    otel-collector:
+      condition: service_started
+  healthcheck:
+    test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:'+process.env.PORT+'/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))\""]
+    interval: 5s
+    timeout: 3s
+    retries: 10
+    start_period: 5s
+  networks: [spanreplay]
+
+services:
+  retrieval-service:
+    <<: *service
+    environment:
+      <<: *service-environment
+      SERVICE_NAME: retrieval-service
+      PORT: 4002
+    labels:
+      com.spanreplay.platform: spanreplay
+      com.spanreplay.service: retrieval-service
+
+  agent-service:
+    <<: *service
+    environment:
+      <<: *service-environment
+      SERVICE_NAME: agent-service
+      PORT: 4001
+      RETRIEVAL_SERVICE_URL: http://retrieval-service:4002
+    depends_on:
+      retrieval-service:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    labels:
+      com.spanreplay.platform: spanreplay
+      com.spanreplay.service: agent-service
+
+  api-gateway:
+    <<: *service
+    environment:
+      <<: *service-environment
+      SERVICE_NAME: api-gateway
+      PORT: 4000
+      AGENT_SERVICE_URL: http://agent-service:4001
+      REPLAY_DIR: /app/data/replays
+    ports: ["127.0.0.1:4000:4000"]
+    volumes: ["replays:/app/data/replays"]
+    depends_on:
+      agent-service:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    labels:
+      com.spanreplay.platform: spanreplay
+      com.spanreplay.service: api-gateway
+
+  replay-console:
+    build:
+      context: .
+      dockerfile: Dockerfile.console
+      args:
+        VITE_API_URL: http://localhost:4000
+    ports: ["127.0.0.1:4173:8080"]
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    networks: [spanreplay]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.138.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:8889:8889"
+    networks: [spanreplay]
+
+  prometheus:
+    image: prom/prometheus:v3.7.3
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["127.0.0.1:9090:9090"]
+    networks: [spanreplay]
+
+  tempo:
+    image: grafana/tempo:2.9.0
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports: ["127.0.0.1:3200:3200"]
+    networks: [spanreplay]
+
+  loki:
+    image: grafana/loki:3.6.2
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./observability/loki.yaml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    ports: ["127.0.0.1:3100:3100"]
+    networks: [spanreplay]
+
+  vector:
+    image: timberio/vector:0.51.1-debian
+    command: ["--config", "/etc/vector/vector.toml"]
+    volumes:
+      - ./observability/vector.toml:/etc/vector/vector.toml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [loki]
+    networks: [spanreplay]
+
+  grafana:
+    image: grafana/grafana:12.3.1
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_SECURITY_ADMIN_PASSWORD: spanreplay
+    volumes:
+      - ./observability/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./observability/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./observability/grafana/spanreplay.json:/var/lib/grafana/dashboards/spanreplay.json:ro
+      - grafana-data:/var/lib/grafana
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on: [prometheus, tempo, loki]
+    networks: [spanreplay]
+
+networks:
+  spanreplay: {}
+
+volumes:
+  replays: {}
+  tempo-data: {}
+  loki-data: {}
+  grafana-data: {}

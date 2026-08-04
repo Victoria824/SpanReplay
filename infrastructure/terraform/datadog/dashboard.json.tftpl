@@ -1,0 +1,82 @@
+{
+  "title": "SpanReplay · Production AI Operations · ${environment}",
+  "description": "Agent reliability, latency, quality, cost, and replay signals managed by Terraform.",
+  "layout_type": "ordered",
+  "is_read_only": false,
+  "notify_list": [],
+  "template_variables": [
+    { "name": "env", "prefix": "env", "default": "${environment}" },
+    { "name": "service", "prefix": "service", "default": "*" }
+  ],
+  "widgets": [
+    {
+      "definition": {
+        "type": "query_value",
+        "title": "Failed workflows / 5m",
+        "requests": [{ "q": "sum:ai.workflow.runs{env:$env,workflow_status:failed}.as_count()", "aggregator": "sum" }],
+        "autoscale": true,
+        "precision": 0
+      }
+    },
+    {
+      "definition": {
+        "type": "query_value",
+        "title": "p95 workflow latency",
+        "requests": [{ "q": "p95:ai.workflow.duration{env:$env}", "aggregator": "last" }],
+        "autoscale": true,
+        "precision": 0
+      }
+    },
+    {
+      "definition": {
+        "type": "query_value",
+        "title": "Estimated cost",
+        "requests": [{ "q": "sum:ai.workflow.estimated.cost{env:$env}.as_count()", "aggregator": "sum" }],
+        "autoscale": true,
+        "precision": 4
+      }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "Workflow outcomes by scenario",
+        "show_legend": true,
+        "requests": [{
+          "display_type": "bars",
+          "queries": [{ "data_source": "metrics", "name": "runs", "query": "sum:ai.workflow.runs{env:$env} by {workflow_status,failure_scenario}.as_count()" }],
+          "response_format": "timeseries",
+          "formulas": [{ "formula": "runs" }]
+        }]
+      }
+    },
+    {
+      "definition": {
+        "type": "timeseries",
+        "title": "Tokens and validation failures",
+        "show_legend": true,
+        "requests": [
+          { "q": "sum:gen_ai.client.token.usage{env:$env} by {gen_ai_token_type}.as_rate()", "display_type": "line", "on_right_yaxis": false },
+          { "q": "sum:ai.validation.failures{env:$env} by {validation_reason}.as_count()", "display_type": "bars", "on_right_yaxis": true }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "type": "servicemap",
+        "title": "Agent service topology",
+        "service": "agent-service",
+        "filters": ["env:$env"]
+      }
+    },
+    {
+      "definition": {
+        "type": "log_stream",
+        "title": "Trace-correlated incident logs",
+        "query": "env:$env service:$service @trace_id:*",
+        "columns": ["timestamp", "service", "status", "@trace_id", "@failure_category", "message"],
+        "message_display": "expanded-md",
+        "sort": { "column": "timestamp", "order": "desc" }
+      }
+    }
+  ]
+}

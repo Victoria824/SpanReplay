@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - ".spanreplay-bootstrap.tar.gz"
+      - ".spanreplay-bootstrap-v2.tar.gz"
 
 permissions:
   contents: write
@@ -20,10 +20,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f .spanreplay-bootstrap.tar.gz
-          tar -xzf .spanreplay-bootstrap.tar.gz
-          rm .spanreplay-bootstrap.tar.gz
-          rm .github/workflows/bootstrap.yml
+          test -f .spanreplay-bootstrap-v2.tar.gz
+          tar -xzf .spanreplay-bootstrap-v2.tar.gz
+          rm .spanreplay-bootstrap-v2.tar.gz .spanreplay-bootstrap.tar.gz
+          rm .github/workflows/ci.yml .github/workflows/codeql.yml
       - name: Publish source tree
         shell: bash
         run: |

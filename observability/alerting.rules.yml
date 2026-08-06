@@ -1,0 +1,24 @@
+groups:
+  - name: spanreplay-workflows
+    rules:
+      - alert: SpanReplaySustainedWorkflowFailures
+        expr: sum(rate(spanreplay_ai_workflow_runs_total{workflow_status="failed"}[5m])) > 0.05
+        for: 5m
+        labels: { severity: page, team: ai-platform }
+        annotations:
+          summary: SpanReplay workflows are failing persistently
+          runbook: docs/incident-playbook.md
+      - alert: SpanReplayRetrievalLoadShedding
+        expr: sum(rate(spanreplay_ai_retrieval_admissions_total{admission_outcome="shed"}[5m])) > 0.1
+        for: 5m
+        labels: { severity: ticket, team: ai-platform }
+        annotations:
+          summary: Retrieval is shedding work above its safe concurrency boundary
+          runbook: docs/performance-investigation.md
+      - alert: SpanReplayCollectorQueueNearCapacity
+        expr: max(otelcol_exporter_queue_size / clamp_min(otelcol_exporter_queue_capacity, 1)) > 0.8
+        for: 2m
+        labels: { severity: page, team: observability }
+        annotations:
+          summary: OpenTelemetry exporter queue is above 80 percent capacity
+          runbook: docs/game-days/telemetry-backend-outage.md

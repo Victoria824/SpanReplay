@@ -3,9 +3,11 @@ import { useMemo, useState } from "react";
 type Scenario =
   | "healthy"
   | "retrieval-timeout"
+  | "retrieval-saturation"
   | "irrelevant-context"
   | "provider-timeout"
   | "tool-error"
+  | "error-tracking"
   | "validation-failure"
   | "cost-spike";
 
@@ -33,6 +35,7 @@ type Comparison = {
   originalTraceId: string;
   replayTraceId: string;
   changed: Record<string, boolean>;
+  driftDetected: boolean;
   replay: Result;
 };
 
@@ -41,9 +44,11 @@ const API = import.meta.env.VITE_API_URL || window.location.origin;
 const scenarios: Array<{ value: Scenario; label: string; hint: string }> = [
   { value: "healthy", label: "Healthy workflow", hint: "Baseline: every dependency and policy passes" },
   { value: "retrieval-timeout", label: "Retrieval timeout", hint: "Dependency exceeds the retrieval latency budget" },
+  { value: "retrieval-saturation", label: "Retrieval saturation", hint: "Concurrent requests create queueing delay in the retrieval boundary" },
   { value: "irrelevant-context", label: "Low relevance", hint: "Grounding gate blocks irrelevant context" },
   { value: "provider-timeout", label: "Provider timeout", hint: "The simulated model provider stops responding" },
   { value: "tool-error", label: "Tool failure", hint: "Incident ticket lookup returns a 503" },
+  { value: "error-tracking", label: "Unhandled exception", hint: "A stable TypeError exercises backend error grouping" },
   { value: "validation-failure", label: "Unsafe response", hint: "Policy blocks a destructive action" },
   { value: "cost-spike", label: "Token cost spike", hint: "Usage jumps 12× while the workflow still succeeds" },
 ];
@@ -57,16 +62,18 @@ const seedResults: Record<Scenario, Result> = {
     steps: [
       { name: "retrieval.search", service: "retrieval-service", status: "ok", durationMs: 42, attributes: { documentCount: 3, topRelevance: 0.96 } },
       { name: "gen_ai.chat", service: "agent-service", status: "ok", durationMs: 186, attributes: { model: "deterministic-demo-model", inputTokens: 228, outputTokens: 92 } },
-      { name: "incident.ticket.lookup", service: "worker-service", status: "ok", durationMs: 31, attributes: { attempts: 1 } },
+      { name: "incident.ticket.lookup", service: "simulated-worker-boundary", status: "ok", durationMs: 31, attributes: { attempts: 1 } },
     ],
     usage: { inputTokens: 228, outputTokens: 92, estimatedCostUsd: 0.00149 },
     evaluation: { grounded: true, toolSucceeded: true, validationPassed: true, score: 0.96 },
     metadata: { scenario: "healthy", promptVersion: "support-agent-v1", model: "deterministic-demo-model", retrievedDocumentIds: ["runbook-provider-timeout", "policy-retrieval-quality", "runbook-tool-failure"] },
   },
   "retrieval-timeout": null as unknown as Result,
+  "retrieval-saturation": null as unknown as Result,
   "irrelevant-context": null as unknown as Result,
   "provider-timeout": null as unknown as Result,
   "tool-error": null as unknown as Result,
+  "error-tracking": null as unknown as Result,
   "validation-failure": null as unknown as Result,
   "cost-spike": null as unknown as Result,
 };
@@ -147,6 +154,7 @@ export default function App() {
         originalTraceId: result.traceId,
         replayTraceId: "c".repeat(32),
         changed: { status: false, answer: false, toolPath: false, validation: false },
+        driftDetected: false,
         replay: result,
       });
     } finally {
@@ -184,12 +192,12 @@ export default function App() {
         </article>
 
         <aside id="signals">
-          <article className="signals"><div className="card-head"><p>Correlated signals</p><span>trace_id linked</span></div><div className="metrics"><div><small>p95 latency</small><strong>{totalLatency} ms</strong><em>workflow</em></div><div><small>estimated cost</small><strong>${result.usage.estimatedCostUsd.toFixed(5)}</strong><em>{result.usage.inputTokens + result.usage.outputTokens} tokens</em></div><div><small>grounding</small><strong>{Math.round(result.evaluation.score * 100)}%</strong><em>{result.evaluation.grounded ? "passed" : "blocked"}</em></div><div><small>tool path</small><strong>{result.steps.length}</strong><em>{result.evaluation.toolSucceeded ? "successful" : "incomplete"}</em></div></div></article>
+          <article className="signals"><div className="card-head"><p>Correlated signals</p><span>trace_id linked</span></div><div className="metrics"><div><small>trace latency</small><strong>{totalLatency} ms</strong><em>observed workflow</em></div><div><small>estimated cost</small><strong>${result.usage.estimatedCostUsd.toFixed(5)}</strong><em>{result.usage.inputTokens + result.usage.outputTokens} tokens</em></div><div><small>grounding</small><strong>{Math.round(result.evaluation.score * 100)}%</strong><em>{result.evaluation.grounded ? "passed" : "blocked"}</em></div><div><small>tool path</small><strong>{result.steps.length}</strong><em>{result.evaluation.toolSucceeded ? "successful" : "incomplete"}</em></div></div></article>
           <article className="log"><div className="card-head"><p>Structured incident event</p><span>JSON / Pino</span></div><pre>{JSON.stringify({level: result.status === "completed" ? 30 : 50, service: result.failure?.service ?? "agent-service", trace_id: result.traceId, scenario: result.metadata.scenario, status: result.status, failure_category: result.failure?.category ?? null, prompt_version: result.metadata.promptVersion}, null, 2)}</pre></article>
         </aside>
       </section>
 
-      <section className="replay" id="replay"><div><p className="eyebrow">Privacy-aware failure replay</p><h2>Turn an incident trace into a reproducible test.</h2><p>Replay sanitized provider and tool fixtures without storing credentials or raw sensitive content. Compare status, tool path, validation, cost, and response changes.</p></div><button onClick={replay} disabled={loading}>Replay this trace</button>{comparison && <div className="diff"><span>ORIGINAL<br/><code>{comparison.originalTraceId.slice(0, 12)}…</code></span><b>→</b><span>REPLAYED<br/><code>{comparison.replayTraceId.slice(0, 12)}…</code></span><strong>{Object.values(comparison.changed).some(Boolean) ? "DRIFT DETECTED" : "REPRODUCED"}</strong></div>}</section>
+      <section className="replay" id="replay"><div><p className="eyebrow">Privacy-aware failure replay</p><h2>Turn an incident trace into a reproducible test.</h2><p>Re-execute the agent state machine with sanitized retrieval, model, and tool adapter fixtures. Compare status, tool path, validation, cost, and response changes.</p></div><button onClick={replay} disabled={loading}>Replay this trace</button>{comparison && <div className="diff"><span>ORIGINAL<br/><code>{comparison.originalTraceId.slice(0, 12)}…</code></span><b>→</b><span>REPLAYED<br/><code>{comparison.replayTraceId.slice(0, 12)}…</code></span><strong>{comparison.driftDetected ? "DRIFT DETECTED" : "REPRODUCED"}</strong></div>}</section>
 
       <footer><span>SpanReplay</span><p>OpenTelemetry · Node.js · TypeScript · Datadog-compatible · Apache-2.0</p></footer>
     </main>

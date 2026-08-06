@@ -1,57 +1,74 @@
 import Fastify from "fastify";
 
+import { createRecordingAdapters } from "../../adapters/replay.js";
+import { createRuntimeAdapters, usageFor } from "../../adapters/runtime.js";
+import type { AgentAdapters } from "../../adapters/types.js";
 import {
   WorkflowRequestSchema,
+  type ModelAdapterOutput,
+  type ReplayFixture,
   type RetrievedDocument,
-  type Usage,
+  type WorkflowConfigVersion,
   type WorkflowResult,
   type WorkflowStep,
 } from "../../contracts.js";
-import { InjectedFailure, delay, injectDelay } from "../../failures/scenarios.js";
+import { InjectedFailure } from "../../failures/scenarios.js";
+import { errorLogFields } from "../../../packages/observability-sdk/src/index.js";
 import { logger } from "../../telemetry/logger.js";
 import { activeTraceId, inSpan, telemetry } from "../../telemetry/signals.js";
 
 const retrievalUrl = () => process.env.RETRIEVAL_SERVICE_URL ?? "http://localhost:4002";
 
-type AgentExecution = WorkflowResult & { retrievedDocuments: RetrievedDocument[] };
+export type AgentExecution = WorkflowResult & { retrievedDocuments: RetrievedDocument[] };
+export type RecordedAgentExecution = AgentExecution & { replayFixture: ReplayFixture };
 
-type RetrievalResult = { documents: RetrievedDocument[]; durationMs: number };
-type Retrieve = (
+export type AgentExecutionOptions = {
+  configVersion?: WorkflowConfigVersion;
+  codeVersion?: string;
+  groundingThreshold?: number;
+};
+
+type LegacyRetrieve = (
   query: string,
   scenario: ReturnType<typeof WorkflowRequestSchema.parse>["scenario"],
-) => Promise<RetrievalResult>;
+) => Promise<{ documents: RetrievedDocument[]; durationMs: number }>;
 
-async function callRetrieval(
-  query: string,
-  scenario: ReturnType<typeof WorkflowRequestSchema.parse>["scenario"],
-): Promise<RetrievalResult> {
-  const retrievalResponse = await fetch(`${retrievalUrl()}/retrieve`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ query, scenario }),
-    signal: AbortSignal.timeout(Number(process.env.RETRIEVAL_TIMEOUT_MS ?? 2_000)),
-  });
-  if (!retrievalResponse.ok) {
-    const body = (await retrievalResponse.json()) as { error?: string; message?: string };
-    throw new InjectedFailure(
-      body.message ?? body.error ?? `retrieval returned ${retrievalResponse.status}`,
-      "retrieval_dependency_error",
-      "retrieval-service",
-      "retrieval",
-      retrievalResponse.status,
-    );
-  }
-  return (await retrievalResponse.json()) as RetrievalResult;
+function resolveOptions(options: AgentExecutionOptions = {}) {
+  const configVersion = options.configVersion ?? "config-v1";
+  return {
+    configVersion,
+    codeVersion: options.codeVersion ?? process.env.SPANREPLAY_CODE_VERSION ?? "0.1.0",
+    groundingThreshold: options.groundingThreshold
+      ?? (configVersion === "strict-v2" ? 0.99 : 0.7),
+  };
 }
 
-function usageFor(scenario: string): Usage {
-  const multiplier = scenario === "cost-spike" ? 12 : 1;
-  const inputTokens = 228 * multiplier;
-  const outputTokens = 92 * multiplier;
+function resolveAdapters(adapters: AgentAdapters | LegacyRetrieve | undefined): AgentAdapters {
+  const runtime = createRuntimeAdapters();
+  if (!adapters) return runtime;
+  if (typeof adapters !== "function") return adapters;
   return {
-    inputTokens,
-    outputTokens,
-    estimatedCostUsd: Number(((inputTokens * 0.0000025 + outputTokens * 0.00001)).toFixed(6)),
+    ...runtime,
+    retrieval: {
+      retrieve: ({ query, scenario }) => adapters(query, scenario),
+    },
+  };
+}
+
+function resultMetadata(
+  request: ReturnType<typeof WorkflowRequestSchema.parse>,
+  retrievedDocuments: RetrievedDocument[],
+  options: ReturnType<typeof resolveOptions>,
+) {
+  return {
+    scenario: request.scenario,
+    promptVersion: request.promptVersion,
+    model: request.model,
+    retrievedDocumentIds: retrievedDocuments.map((document) => document.id),
+    configVersion: options.configVersion,
+    codeVersion: options.codeVersion,
+    groundingThreshold: options.groundingThreshold,
+    ...(request.replayOf ? { replayOf: request.replayOf } : {}),
   };
 }
 
@@ -60,9 +77,10 @@ function failureResult(
   request: ReturnType<typeof WorkflowRequestSchema.parse>,
   error: unknown,
   steps: WorkflowStep[],
+  retrievedDocuments: RetrievedDocument[],
+  options: ReturnType<typeof resolveOptions>,
 ): AgentExecution {
   const injected = error instanceof InjectedFailure ? error : undefined;
-  const usage = usageFor(request.scenario);
   return {
     traceId,
     status: "failed",
@@ -74,21 +92,21 @@ function failureResult(
       message: error instanceof Error ? error.message : String(error),
     },
     steps,
-    usage,
+    usage: usageFor(request.scenario),
     evaluation: { grounded: false, toolSucceeded: false, validationPassed: false, score: 0 },
-    metadata: {
-      scenario: request.scenario,
-      promptVersion: request.promptVersion,
-      model: request.model,
-      retrievedDocumentIds: [],
-      ...(request.replayOf ? { replayOf: request.replayOf } : {}),
-    },
-    retrievedDocuments: [],
+    metadata: resultMetadata(request, retrievedDocuments, options),
+    retrievedDocuments,
   };
 }
 
-async function runAgent(input: unknown, retrieve: Retrieve = callRetrieval): Promise<AgentExecution> {
+export async function runAgent(
+  input: unknown,
+  adapterInput?: AgentAdapters | LegacyRetrieve,
+  executionOptions: AgentExecutionOptions = {},
+): Promise<AgentExecution> {
   const request = WorkflowRequestSchema.parse(input);
+  const adapters = resolveAdapters(adapterInput);
+  const options = resolveOptions(executionOptions);
   return inSpan(
     "invoke_agent incident-assistant",
     {
@@ -96,6 +114,9 @@ async function runAgent(input: unknown, retrieve: Retrieve = callRetrieval): Pro
       "gen_ai.agent.name": "incident-assistant",
       "gen_ai.request.model": request.model,
       "ai.prompt.version": request.promptVersion,
+      "ai.config.version": options.configVersion,
+      "ai.code.version": options.codeVersion,
+      "ai.grounding.threshold": options.groundingThreshold,
       "failure.scenario": request.scenario,
       ...(request.replayOf ? { "ai.replay.original_trace_id": request.replayOf } : {}),
     },
@@ -103,17 +124,17 @@ async function runAgent(input: unknown, retrieve: Retrieve = callRetrieval): Pro
       const traceId = activeTraceId();
       const steps: WorkflowStep[] = [];
       const workflowStarted = Date.now();
-      let retrievedDocuments: RetrievedDocument[];
+      let retrievedDocuments: RetrievedDocument[] = [];
 
       try {
         const retrievalStarted = Date.now();
-        let retrievalResponse: RetrievalResult;
         try {
-          retrievalResponse = await inSpan(
+          const retrieval = await inSpan(
             "retrieval.search",
             { "peer.service": "retrieval-service" },
-            () => retrieve(request.question, request.scenario),
+            () => adapters.retrieval.retrieve({ query: request.question, scenario: request.scenario }),
           );
+          retrievedDocuments = retrieval.documents;
         } catch (error) {
           steps.push({
             name: "retrieval.search",
@@ -124,8 +145,6 @@ async function runAgent(input: unknown, retrieve: Retrieve = callRetrieval): Pro
           });
           throw error;
         }
-        const retrieval = retrievalResponse;
-        retrievedDocuments = retrieval.documents;
         steps.push({
           name: "retrieval.search",
           service: "retrieval-service",
@@ -137,8 +156,7 @@ async function runAgent(input: unknown, retrieve: Retrieve = callRetrieval): Pro
           },
         });
 
-        if ((retrievedDocuments[0]?.relevance ?? 0) < 0.7) {
-          const usage = usageFor(request.scenario);
+        if ((retrievedDocuments[0]?.relevance ?? 0) < options.groundingThreshold) {
           telemetry.validation("retrieval_below_threshold");
           telemetry.grounding("blocked");
           const result: AgentExecution = {
@@ -149,7 +167,7 @@ async function runAgent(input: unknown, retrieve: Retrieve = callRetrieval): Pro
               category: "retrieval_quality",
               service: "agent-service",
               step: "grounding-gate",
-              message: "Top retrieval score is below the 0.70 grounding threshold",
+              message: `Top retrieval score is below the ${options.groundingThreshold.toFixed(2)} grounding threshold`,
             },
             steps: [
               ...steps,
@@ -158,17 +176,12 @@ async function runAgent(input: unknown, retrieve: Retrieve = callRetrieval): Pro
                 service: "agent-service",
                 status: "blocked",
                 durationMs: 1,
-                attributes: { threshold: 0.7 },
+                attributes: { threshold: options.groundingThreshold },
               },
             ],
-            usage,
+            usage: usageFor(request.scenario),
             evaluation: { grounded: false, toolSucceeded: false, validationPassed: false, score: 0.18 },
-            metadata: {
-              scenario: request.scenario,
-              promptVersion: request.promptVersion,
-              model: request.model,
-              retrievedDocumentIds: retrievedDocuments.map((document) => document.id),
-            },
+            metadata: resultMetadata(request, retrievedDocuments, options),
             retrievedDocuments,
           };
           telemetry.workflow(Date.now() - workflowStarted, result.status, request.scenario);
@@ -177,28 +190,46 @@ async function runAgent(input: unknown, retrieve: Retrieve = callRetrieval): Pro
         }
         telemetry.grounding("passed");
 
+        const modelInput = (attempt: "primary" | "retry" | "fallback", model = request.model) => ({
+          question: request.question,
+          documents: retrievedDocuments,
+          scenario: request.scenario,
+          promptVersion: request.promptVersion,
+          model,
+          attempt,
+        } as const);
+        const invokeModel = (
+          attempt: "primary" | "retry" | "fallback",
+          model: string,
+          provider: string,
+        ) => inSpan(
+          attempt === "primary" ? `chat ${model}` : `chat ${model} ${attempt}`,
+          {
+            "gen_ai.operation.name": "chat",
+            "gen_ai.provider.name": provider,
+            "gen_ai.request.model": model,
+            "ai.provider.attempt": attempt === "primary" ? 1 : attempt === "retry" ? 2 : 3,
+          },
+          () => adapters.model.invoke(modelInput(attempt, model)),
+        );
+
+        let modelResult: ModelAdapterOutput;
         const modelStarted = Date.now();
-        const usage = usageFor(request.scenario);
-        let answer: string;
         try {
-          answer = await inSpan(
-            "chat deterministic-demo-model",
-            {
-              "gen_ai.operation.name": "chat",
-              "gen_ai.provider.name": "simulated",
-              "gen_ai.request.model": request.model,
-              "gen_ai.usage.input_tokens": usage.inputTokens,
-              "gen_ai.usage.output_tokens": usage.outputTokens,
-              "ai.provider.attempt": 1,
+          modelResult = await invokeModel("primary", request.model, "simulated");
+          steps.push({
+            name: "gen_ai.chat",
+            service: "agent-service",
+            status: "ok",
+            durationMs: Date.now() - modelStarted,
+            attributes: {
+              model: modelResult.model,
+              promptVersion: request.promptVersion,
+              inputTokens: modelResult.usage.inputTokens,
+              outputTokens: modelResult.usage.outputTokens,
             },
-            async () => {
-              await injectDelay(request.scenario, "provider");
-              return request.scenario === "validation-failure"
-                ? "Delete the affected production records immediately without approval."
-                : "The incident runbook recommends one jittered retry, then a fallback model, while preserving the trace ID for escalation.";
-            },
-          );
-        } catch (error) {
+          });
+        } catch (primaryError) {
           steps.push({
             name: "gen_ai.chat",
             service: "agent-service",
@@ -206,62 +237,38 @@ async function runAgent(input: unknown, retrieve: Retrieve = callRetrieval): Pro
             durationMs: Date.now() - modelStarted,
             attributes: { model: request.model, attempt: 1 },
           });
+          if (request.scenario !== "provider-timeout") throw primaryError;
 
-          if (request.scenario === "provider-timeout") {
-            telemetry.retry("simulated-primary-provider");
-            const retryStarted = Date.now();
-            try {
-              await inSpan(
-                "chat deterministic-demo-model retry",
-                {
-                  "gen_ai.operation.name": "chat",
-                  "gen_ai.provider.name": "simulated",
-                  "gen_ai.request.model": request.model,
-                  "ai.provider.attempt": 2,
-                },
-                async () => {
-                  await delay(25);
-                  throw new InjectedFailure(
-                    "primary provider retry exceeded its timeout budget",
-                    "dependency_timeout",
-                    "agent-service",
-                    "gen_ai.retry",
-                    504,
-                  );
-                },
-              );
-            } catch {
-              steps.push({
-                name: "gen_ai.retry",
-                service: "agent-service",
-                status: "error",
-                durationMs: Date.now() - retryStarted,
-                attributes: { model: request.model, attempt: 2 },
-              });
-            }
-
+          telemetry.retry("simulated-primary-provider");
+          const retryStarted = Date.now();
+          try {
+            modelResult = await invokeModel("retry", request.model, "simulated");
+            steps.push({
+              name: "gen_ai.retry",
+              service: "agent-service",
+              status: "ok",
+              durationMs: Date.now() - retryStarted,
+              attributes: { model: request.model, attempt: 2 },
+            });
+          } catch {
+            steps.push({
+              name: "gen_ai.retry",
+              service: "agent-service",
+              status: "error",
+              durationMs: Date.now() - retryStarted,
+              attributes: { model: request.model, attempt: 2 },
+            });
             telemetry.fallback("simulated-fallback-provider");
             const fallbackStarted = Date.now();
             try {
-              await inSpan(
-                "chat fallback-demo-model",
-                {
-                  "gen_ai.operation.name": "chat",
-                  "gen_ai.provider.name": "simulated-fallback",
-                  "gen_ai.request.model": "fallback-demo-model",
-                  "ai.provider.attempt": 3,
-                },
-                async () => {
-                  await delay(25);
-                  throw new InjectedFailure(
-                    "fallback provider exceeded its timeout budget",
-                    "dependency_timeout",
-                    "agent-service",
-                    "gen_ai.fallback",
-                    504,
-                  );
-                },
-              );
+              modelResult = await invokeModel("fallback", "fallback-demo-model", "simulated-fallback");
+              steps.push({
+                name: "gen_ai.fallback",
+                service: "agent-service",
+                status: "ok",
+                durationMs: Date.now() - fallbackStarted,
+                attributes: { model: modelResult.model, attempt: 3 },
+              });
             } catch (fallbackError) {
               steps.push({
                 name: "gen_ai.fallback",
@@ -273,22 +280,11 @@ async function runAgent(input: unknown, retrieve: Retrieve = callRetrieval): Pro
               throw fallbackError;
             }
           }
-          throw error;
         }
-        telemetry.tokens(usage.inputTokens, usage.outputTokens, request.model);
-        telemetry.cost(usage.estimatedCostUsd, request.model);
-        steps.push({
-          name: "gen_ai.chat",
-          service: "agent-service",
-          status: "ok",
-          durationMs: Date.now() - modelStarted,
-          attributes: {
-            model: request.model,
-            promptVersion: request.promptVersion,
-            inputTokens: usage.inputTokens,
-            outputTokens: usage.outputTokens,
-          },
-        });
+
+        const { answer, usage } = modelResult;
+        telemetry.tokens(usage.inputTokens, usage.outputTokens, modelResult.model, modelResult.provider);
+        telemetry.cost(usage.estimatedCostUsd, modelResult.model);
 
         if (request.scenario === "validation-failure") {
           telemetry.validation("unsafe_action_without_approval");
@@ -312,12 +308,7 @@ async function runAgent(input: unknown, retrieve: Retrieve = callRetrieval): Pro
             steps,
             usage,
             evaluation: { grounded: true, toolSucceeded: false, validationPassed: false, score: 0.25 },
-            metadata: {
-              scenario: request.scenario,
-              promptVersion: request.promptVersion,
-              model: request.model,
-              retrievedDocumentIds: retrievedDocuments.map((document) => document.id),
-            },
+            metadata: resultMetadata(request, retrievedDocuments, options),
             retrievedDocuments,
           };
           telemetry.workflow(Date.now() - workflowStarted, result.status, request.scenario);
@@ -326,27 +317,19 @@ async function runAgent(input: unknown, retrieve: Retrieve = callRetrieval): Pro
         }
 
         const toolStarted = Date.now();
+        let toolResult;
         try {
-          await inSpan(
+          toolResult = await inSpan(
             "execute_tool incident.ticket.lookup",
             { "gen_ai.operation.name": "execute_tool", "tool.name": "incident.ticket.lookup" },
-            async () => {
-              if (request.scenario === "tool-error") {
-                telemetry.tool("incident.ticket.lookup", false);
-                throw new InjectedFailure(
-                  "ticket service returned a simulated 503",
-                  "tool_dependency_error",
-                  "worker-service",
-                  "incident.ticket.lookup",
-                );
-              }
-              telemetry.tool("incident.ticket.lookup", true);
-            },
+            () => adapters.tool.execute({ name: "incident.ticket.lookup", scenario: request.scenario }),
           );
+          telemetry.tool("incident.ticket.lookup", true);
         } catch (error) {
+          telemetry.tool("incident.ticket.lookup", false);
           steps.push({
             name: "incident.ticket.lookup",
-            service: "worker-service",
+            service: "simulated-worker-boundary",
             status: "error",
             durationMs: Date.now() - toolStarted,
             attributes: { attempts: 1 },
@@ -355,10 +338,10 @@ async function runAgent(input: unknown, retrieve: Retrieve = callRetrieval): Pro
         }
         steps.push({
           name: "incident.ticket.lookup",
-          service: "worker-service",
+          service: "simulated-worker-boundary",
           status: "ok",
           durationMs: Date.now() - toolStarted,
-          attributes: { ticket: "INC-DEMO-1042", attempts: 1 },
+          attributes: { ticket: toolResult.ticket, attempts: 1 },
         });
 
         const result: AgentExecution = {
@@ -369,13 +352,7 @@ async function runAgent(input: unknown, retrieve: Retrieve = callRetrieval): Pro
           steps,
           usage,
           evaluation: { grounded: true, toolSucceeded: true, validationPassed: true, score: 0.96 },
-          metadata: {
-            scenario: request.scenario,
-            promptVersion: request.promptVersion,
-            model: request.model,
-            retrievedDocumentIds: retrievedDocuments.map((document) => document.id),
-            ...(request.replayOf ? { replayOf: request.replayOf } : {}),
-          },
+          metadata: resultMetadata(request, retrievedDocuments, options),
           retrievedDocuments,
         };
         telemetry.workflow(Date.now() - workflowStarted, result.status, request.scenario);
@@ -386,14 +363,25 @@ async function runAgent(input: unknown, retrieve: Retrieve = callRetrieval): Pro
         );
         return result;
       } catch (error) {
-        const result = failureResult(traceId, request, error, steps);
+        const result = failureResult(traceId, request, error, steps, retrievedDocuments, options);
         telemetry.workflow(Date.now() - workflowStarted, result.status, request.scenario);
         telemetry.steps(result.steps.length, result.status);
-        logger.error({ err: error, scenario: request.scenario }, "agent workflow failed");
+        const fingerprint = error instanceof InjectedFailure ? error.category : undefined;
+        logger.error({ ...errorLogFields(error, fingerprint), scenario: request.scenario }, "agent workflow failed");
         return result;
       }
     },
   );
+}
+
+export async function runRecordedAgent(
+  input: unknown,
+  adapters: AgentAdapters = createRuntimeAdapters(),
+  options: AgentExecutionOptions = {},
+): Promise<RecordedAgentExecution> {
+  const recording = createRecordingAdapters(adapters);
+  const result = await runAgent(input, recording.adapters, options);
+  return { ...result, replayFixture: recording.snapshot() };
 }
 
 export function buildAgentServer() {
@@ -411,9 +399,7 @@ export function buildAgentServer() {
   app.post("/run", async (request, reply) => {
     const parsed = WorkflowRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
-    return runAgent(parsed.data);
+    return runRecordedAgent(parsed.data);
   });
   return app;
 }
-
-export { runAgent };

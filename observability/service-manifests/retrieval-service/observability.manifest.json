@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0",
+  "service": { "name": "retrieval-service", "owner": "ai-platform", "tier": 1, "runbook": "docs/incident-playbook.md" },
+  "signals": {
+    "traces": ["ai.retriever.search"],
+    "metrics": [
+      { "name": "ai.retrieval.relevance", "attributes": ["retrieval.outcome"] },
+      { "name": "ai.retrieval.concurrency", "attributes": ["retrieval.mode"] }
+    ],
+    "logs": { "requiredFields": ["service", "environment", "trace_id"] },
+    "errors": { "requiredFields": ["error.type", "error.message", "error.stack", "error.fingerprint"] }
+  },
+  "slo": { "objective": "retrieval availability", "target": 99.9, "window": "30d" }
+}

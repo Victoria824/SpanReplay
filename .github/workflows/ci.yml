@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   application:
     runs-on: ubuntu-latest
@@ -21,6 +25,8 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm run check:instrumentation
+      - run: npm run check:infrastructure
       - run: npm run test:coverage
       - uses: actions/upload-artifact@v4
         if: always()
@@ -38,16 +44,26 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install host-side test tooling
+        run: npm ci
       - name: Validate Compose model
         run: docker compose config --quiet
       - name: Build application images
         run: |
           docker build --tag spanreplay:ci .
           docker build --file Dockerfile.console --tag spanreplay-console:ci .
-      - name: Start service path
-        run: docker compose up --detach --build retrieval-service agent-service api-gateway replay-console otel-collector
+      - name: Start application and observability stack
+        run: docker compose up --detach --build
       - name: Exercise workflow and replay APIs
         run: |
+          curl --fail --retry 30 --retry-delay 1 --retry-connrefused http://localhost:13133/
+          curl --fail --retry 30 --retry-delay 1 --retry-connrefused http://localhost:3200/ready
+          curl --fail --retry 30 --retry-delay 1 --retry-connrefused http://localhost:3100/ready
+          curl --fail --retry 30 --retry-delay 1 --retry-connrefused http://localhost:9090/-/ready
           curl --fail --retry 30 --retry-delay 1 --retry-connrefused http://localhost:4000/health
           curl --fail http://localhost:4000/api/workflows \
             --header 'content-type: application/json' \
@@ -55,6 +71,31 @@ jobs:
             --output /tmp/spanreplay-workflow.json
           node --input-type=module --eval "const r=JSON.parse(await (await import('node:fs/promises')).readFile('/tmp/spanreplay-workflow.json')); if(r.status!=='completed'||!/^[a-f0-9]{32}$/.test(r.traceId)) process.exit(1); console.log(r.traceId)"
           curl --fail --retry 10 --retry-delay 1 --retry-connrefused http://localhost:4173/
+      - name: Verify trace, metric, and log correlation
+        env:
+          RUN_OBSERVABILITY_INTEGRATION: "true"
+        run: npm run test:observability
+      - name: Run telemetry-backend outage game day
+        run: npm run game-day:telemetry-outage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-and-game-day-evidence
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Validate performance scripts
+        run: npm run check:performance
+      - name: Run k6 workflow and saturation smoke tests
+        run: |
+          docker run --rm --network host \
+            --env SMOKE=true \
+            --volume "$PWD/performance:/scripts:ro" \
+            grafana/k6:0.54.0 run /scripts/workflow-load.js
+          docker run --rm --network host \
+            --env SMOKE=true \
+            --volume "$PWD/performance:/scripts:ro" \
+            grafana/k6:0.54.0 run /scripts/retrieval-saturation.js
       - name: Service diagnostics
         if: failure()
         run: docker compose logs --no-color
@@ -65,17 +106,42 @@ jobs:
   infrastructure:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      matrix:
+        directory:
+          - infrastructure/terraform/datadog
+          - infrastructure/terraform/aws
+          - infrastructure/terraform/aws-bootstrap
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.10.5"
       - name: Terraform format
-        working-directory: infrastructure/terraform/datadog
+        working-directory: ${{ matrix.directory }}
         run: terraform fmt -check -recursive
       - name: Terraform initialize
-        working-directory: infrastructure/terraform/datadog
+        working-directory: ${{ matrix.directory }}
         run: terraform init -backend=false
       - name: Terraform validate
-        working-directory: infrastructure/terraform/datadog
+        working-directory: ${{ matrix.directory }}
         run: terraform validate
+
+  kubernetes-manifests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.35.0"
+      - name: Render production overlay
+        run: |
+          cp infrastructure/kubernetes/overlays/production/production.env.example infrastructure/kubernetes/overlays/production/production.env
+          kubectl kustomize infrastructure/kubernetes/overlays/production > /tmp/spanreplay-production.yaml
+      - name: Reject unresolved YAML structure
+        run: |
+          test -s /tmp/spanreplay-production.yaml
+          grep -q 'kind: HorizontalPodAutoscaler' /tmp/spanreplay-production.yaml
+          grep -q 'kind: PodDisruptionBudget' /tmp/spanreplay-production.yaml
+          grep -q 'REPLAY_STORE_BACKEND' /tmp/spanreplay-production.yaml

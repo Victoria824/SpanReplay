@@ -89,6 +89,45 @@ resource "datadog_monitor" "validation_failures" {
   tags                = local.common_tags
 }
 
+resource "datadog_monitor" "retrieval_load_shedding" {
+  name    = "[SpanReplay] Retrieval is shedding sustained load"
+  type    = "metric alert"
+  query   = "sum(last_5m):sum:ai.retrieval.admissions{env:${var.environment},admission_outcome:shed}.as_count() > 10"
+  message = <<-EOT
+    Retrieval has exceeded the validated per-instance concurrency boundary. Inspect concurrency, queue latency, replica availability, and downstream saturation before raising the limit.
+    ${local.notifications}
+  EOT
+
+  monitor_thresholds {
+    critical = 10
+    warning  = 5
+  }
+
+  notify_no_data      = false
+  require_full_window = false
+  include_tags        = true
+  tags                = local.common_tags
+}
+
+resource "datadog_monitor" "new_backend_errors" {
+  name    = "[SpanReplay] New backend error issue detected"
+  type    = "error-tracking alert"
+  query   = "error-tracking(\"env:${var.environment} service:agent-service\").source(\"backend\").new().rollup(\"count\").by(\"@issue.id\").last(\"1d\") > 0"
+  message = <<-EOT
+    A new grouped backend exception appeared in the agent service. Open the issue, inspect the correlated trace and structured log, then replay the originating workflow before changing code or thresholds.
+    ${local.notifications}
+  EOT
+
+  monitor_thresholds {
+    critical = 0
+  }
+
+  notify_no_data      = false
+  require_full_window = false
+  include_tags        = true
+  tags                = local.common_tags
+}
+
 resource "datadog_service_level_objective" "workflow_availability" {
   name        = "SpanReplay production AI workflow availability"
   type        = "monitor"

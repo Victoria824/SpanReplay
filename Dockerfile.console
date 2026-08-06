@@ -1,6 +1,7 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
+COPY packages/observability-sdk/package.json ./packages/observability-sdk/package.json
 RUN npm ci
 COPY tsconfig.json ./
 COPY console ./console
@@ -9,5 +10,18 @@ ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build:console
 
 FROM nginxinc/nginx-unprivileged:1.29-alpine
+ARG BUILD_DATE="unknown"
+ARG VCS_REF="unknown"
+ARG VERSION="0.1.0"
+LABEL org.opencontainers.image.title="SpanReplay Console" \
+      org.opencontainers.image.description="Privacy-aware failure replay console" \
+      org.opencontainers.image.source="https://github.com/Victoria824/SpanReplay" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.created="$BUILD_DATE" \
+      org.opencontainers.image.revision="$VCS_REF" \
+      org.opencontainers.image.version="$VERSION"
 COPY --from=build /app/console/dist /usr/share/nginx/html
 EXPOSE 8080
+STOPSIGNAL SIGQUIT
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD wget --quiet --tries=1 --spider http://127.0.0.1:8080/ || exit 1

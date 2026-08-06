@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { WorkflowResult } from "../src/contracts.js";
+import type { ReplayFixture, WorkflowResult } from "../src/contracts.js";
 import { ReplayStore } from "../src/replay/store.js";
 
 const directories: string[] = [];
@@ -38,7 +38,12 @@ describe("ReplayStore", () => {
     await store.save(
       { question: "private", scenario: "validation-failure", promptVersion: "v1", model: "demo" },
       result,
-      [],
+      {
+        schemaVersion: "2.0",
+        retrieval: [],
+        model: [],
+        tool: [],
+      } satisfies ReplayFixture,
     );
 
     const file = await stat(path.join(directory, `${traceId}.json`));
@@ -46,4 +51,3 @@ describe("ReplayStore", () => {
     await expect(store.get("../../etc/passwd")).rejects.toThrow("Invalid trace id");
   });
 });
-

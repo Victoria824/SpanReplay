@@ -1,0 +1,62 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../spanreplay.yaml
+  - service-account.yaml
+  - availability.yaml
+patchesStrategicMerge:
+  - app-ha-patches.yaml
+  - collector-patch.yaml
+patches:
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: api-gateway
+    patch: |-
+      - op: add
+        path: /spec/template/spec/serviceAccountName
+        value: api-gateway
+      - op: replace
+        path: /spec/template/spec/automountServiceAccountToken
+        value: true
+      - op: remove
+        path: /spec/template/spec/containers/0/volumeMounts/0
+      - op: remove
+        path: /spec/template/spec/volumes/0
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: { name: REPLAY_STORE_BACKEND, value: s3 }
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: { name: REPLAY_S3_BUCKET, valueFrom: { configMapKeyRef: { name: spanreplay-production, key: replayBucket } } }
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: { name: REPLAY_S3_KMS_KEY_ID, valueFrom: { configMapKeyRef: { name: spanreplay-production, key: replayKmsKeyArn } } }
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: { name: AUTH0_ISSUER_BASE_URL, valueFrom: { configMapKeyRef: { name: spanreplay-production, key: auth0IssuerBaseUrl } } }
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: { name: AUTH0_AUDIENCE, valueFrom: { configMapKeyRef: { name: spanreplay-production, key: auth0Audience } } }
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: { name: AUTH0_REQUIRE_TENANT, value: "true" }
+configMapGenerator:
+  - name: spanreplay-production
+    namespace: spanreplay
+    envs:
+      - production.env
+generatorOptions:
+  disableNameSuffixHash: true
+replacements:
+  - source:
+      kind: ConfigMap
+      name: spanreplay-production
+      fieldPath: data.gatewayIrsaRoleArn
+    targets:
+      - select:
+          kind: ServiceAccount
+          name: api-gateway
+        fieldPaths:
+          - metadata.annotations.[eks.amazonaws.com/role-arn]

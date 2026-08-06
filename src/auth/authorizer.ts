@@ -81,7 +81,18 @@ export function createOidcTokenVerifier(options: OidcTokenVerifierOptions): Toke
 }
 
 export function bearerToken(authorization: string | undefined): string {
-  const match = /^Bearer\s+(.+)$/i.exec(authorization ?? "");
-  if (!match?.[1]) throw new Error("Bearer token is required");
-  return match[1];
+  const value = authorization ?? "";
+  if (value.slice(0, 6).toLowerCase() !== "bearer" || value.charCodeAt(6) !== 0x20) {
+    throw new Error("Bearer token is required");
+  }
+
+  let tokenStart = 7;
+  while (value.charCodeAt(tokenStart) === 0x20) tokenStart += 1;
+  const token = value.slice(tokenStart);
+  if (!token) throw new Error("Bearer token is required");
+  for (const character of token) {
+    const code = character.charCodeAt(0);
+    if (code <= 0x20 || code === 0x7f) throw new Error("Bearer token is required");
+  }
+  return token;
 }

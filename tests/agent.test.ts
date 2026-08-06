@@ -54,8 +54,22 @@ describe("agent workflow", () => {
     expect(result.status).toBe("failed");
     expect(result.failure).toMatchObject({
       category: "tool_dependency_error",
-      service: "worker-service",
+      service: "simulated-worker-boundary",
       step: "incident.ticket.lookup",
+    });
+  });
+
+  it("exercises the backend error-tracking path with an unhandled exception", async () => {
+    const result = await runAgent(
+      { question: "How should an incident be handled?", scenario: "error-tracking" },
+      async () => ({ documents: relevant, durationMs: 2 }),
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.failure).toMatchObject({
+      category: "unhandled_error",
+      service: "agent-service",
+      message: "simulated ticket parser invariant failed",
     });
   });
 

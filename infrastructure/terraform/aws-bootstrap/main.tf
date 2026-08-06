@@ -38,7 +38,7 @@ locals {
     "repo:${var.github_repository}:environment:aws-production",
     "repo:${var.github_repository}:environment:datadog-verification",
   ]
-  account_id = data.aws_caller_identity.current.account_id
+  account_id          = data.aws_caller_identity.current.account_id
   eks_oidc_issuer_url = var.eks_cluster_name == null ? null : data.aws_eks_cluster.existing[0].identity[0].oidc[0].issuer
   eks_oidc_provider_arn = var.eks_cluster_name == null ? null : coalesce(
     var.eks_oidc_provider_arn,

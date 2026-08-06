@@ -38,7 +38,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "replays" {
 }
 
 resource "aws_s3_bucket_lifecycle_configuration" "replays" {
-  bucket = aws_s3_bucket.replays.id
+  bucket     = aws_s3_bucket.replays.id
   depends_on = [aws_s3_bucket_versioning.replays]
   rule {
     id     = "privacy-retention"

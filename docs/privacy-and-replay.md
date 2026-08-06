@@ -9,11 +9,11 @@ Agent traces are valuable because they contain context; that same context can co
 - Retrieved document bodies are excluded; fixtures store bounded identifiers, titles, and relevance only.
 - Replay records use a versioned schema, owner-only permissions, atomic writes, and strict trace IDs.
 - Live replay is refused when content was redacted.
-- Fixture replay performs no external provider or tool calls.
+- Fixture replay re-executes the agent state machine through recorded adapter outcomes and performs no external provider or tool calls.
 
 ## Before production use
 
-Add authenticated access, tenant isolation, encryption at rest, a managed datastore, retention/deletion jobs, legal/privacy review, audit events, per-tool replay policies, and region-aware storage. Replace local file storage with an interface backed by approved infrastructure.
+The included S3 repository and AWS Terraform module provide KMS encryption, versioning, lifecycle expiry, and IRSA for a single approved environment. Before production use, additionally add tenant-level authorization, access audit events, legal/privacy review, deletion workflows (including versioned objects), regional controls, and per-tool replay policies.
 
 ## Threats explicitly considered
 
@@ -25,4 +25,3 @@ Add authenticated access, tenant isolation, encryption at rest, a managed datast
 - Replay drift caused by model/provider/config changes.
 
 The starter kit addresses the first three in its demo boundary and documents the remaining controls rather than presenting them as solved.
-

@@ -21,9 +21,8 @@
 
 ## Replay decision
 
-Use **fixture replay** for first response. It replays sanitized control-flow evidence and cannot call real providers or tools. Use **live replay** only in an isolated non-sensitive environment, after confirming the record retained content intentionally and tool operations are safe/idempotent.
+Use **fixture replay** for first response. It re-executes the agent state machine through sanitized recorded adapter outcomes and cannot call real providers or tools. Use **live replay** only in an isolated non-sensitive environment, after confirming the record retained content intentionally and tool operations are safe/idempotent.
 
 ## Root-cause write-up
 
 Document timeline, impact, detection gap, first failing span, contributing conditions, mitigation, why safeguards did or did not activate, and dated owners for prevention. Attach trace IDs and dashboard links; never attach raw secrets or customer content.
-

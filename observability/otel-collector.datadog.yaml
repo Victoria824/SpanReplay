@@ -25,10 +25,30 @@ exporters:
     endpoint: datadog-agent:4317
     tls:
       insecure: true
+    sending_queue:
+      enabled: true
+      queue_size: 2048
+      num_consumers: 8
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 10m
   debug:
     verbosity: basic
 
 service:
+  telemetry:
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+                without_type_suffix: true
+                without_units: true
   pipelines:
     traces:
       receivers: [otlp]
@@ -38,4 +58,3 @@ service:
       receivers: [otlp]
       processors: [memory_limiter, resource, batch]
       exporters: [otlp/datadog]
-

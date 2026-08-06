@@ -1,0 +1,102 @@
+{
+  "experiment": "retrieval-horizontal-scaling",
+  "measuredAt": "2026-08-06T14:37:16.859Z",
+  "parameters": {
+    "rounds": 5,
+    "saturationBaseDelayMs": 5,
+    "saturationQueueDelayMs": 20
+  },
+  "baseline": [
+    {
+      "replicas": 1,
+      "concurrency": 4,
+      "requests": 20,
+      "throughputRps": 432.3,
+      "p50Ms": 6.3,
+      "p95Ms": 14.6,
+      "p99Ms": 19.4,
+      "errorRate": 0
+    },
+    {
+      "replicas": 1,
+      "concurrency": 8,
+      "requests": 40,
+      "throughputRps": 91.4,
+      "p50Ms": 8.1,
+      "p95Ms": 87.2,
+      "p99Ms": 87.6,
+      "errorRate": 0
+    },
+    {
+      "replicas": 1,
+      "concurrency": 16,
+      "requests": 80,
+      "throughputRps": 64.3,
+      "p50Ms": 89.7,
+      "p95Ms": 246.5,
+      "p99Ms": 250,
+      "errorRate": 0
+    },
+    {
+      "replicas": 1,
+      "concurrency": 32,
+      "requests": 160,
+      "throughputRps": 56.1,
+      "p50Ms": 255.2,
+      "p95Ms": 546.5,
+      "p99Ms": 572.4,
+      "errorRate": 0
+    }
+  ],
+  "scaled": [
+    {
+      "replicas": 4,
+      "concurrency": 4,
+      "requests": 20,
+      "throughputRps": 561.4,
+      "p50Ms": 6.3,
+      "p95Ms": 9.6,
+      "p99Ms": 9.6,
+      "errorRate": 0
+    },
+    {
+      "replicas": 4,
+      "concurrency": 8,
+      "requests": 40,
+      "throughputRps": 1145.8,
+      "p50Ms": 6.4,
+      "p95Ms": 9.2,
+      "p99Ms": 9.3,
+      "errorRate": 0
+    },
+    {
+      "replicas": 4,
+      "concurrency": 16,
+      "requests": 80,
+      "throughputRps": 2064.9,
+      "p50Ms": 6.6,
+      "p95Ms": 10.1,
+      "p99Ms": 10.3,
+      "errorRate": 0
+    },
+    {
+      "replicas": 4,
+      "concurrency": 32,
+      "requests": 160,
+      "throughputRps": 358.2,
+      "p50Ms": 11.1,
+      "p95Ms": 87.6,
+      "p99Ms": 88.4,
+      "errorRate": 0
+    }
+  ],
+  "peakComparison": {
+    "concurrency": 32,
+    "p95ImprovementPercent": 84,
+    "throughputImprovementPercent": 538.5
+  },
+  "acceptance": {
+    "noErrors": true,
+    "scaledP95AtLeast40PercentLower": true
+  }
+}

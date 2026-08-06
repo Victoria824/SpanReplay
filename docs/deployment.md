@@ -21,14 +21,14 @@ Run the deterministic no-container check first with `npm run demo`. The full sta
 
 ## Kubernetes
 
-Build and push the two images, then update image tags in `infrastructure/kubernetes/spanreplay.yaml`:
+Build and push the two images, then update image tags in `infrastructure/kubernetes/base/spanreplay.yaml`:
 
 ```bash
 docker build -t ghcr.io/victoria824/spanreplay:0.1.0 .
 docker build -f Dockerfile.console -t ghcr.io/victoria824/spanreplay-console:0.1.0 .
 docker push ghcr.io/victoria824/spanreplay:0.1.0
 docker push ghcr.io/victoria824/spanreplay-console:0.1.0
-kubectl apply --server-side -f infrastructure/kubernetes/spanreplay.yaml
+kubectl apply --server-side -k infrastructure/kubernetes/base
 ```
 
 The manifest assumes an NGINX Ingress controller and the development host `spanreplay.local`. Replace the host, add TLS, set the CORS allow-list, and place the Console/API behind organizational identity before an internet-facing deployment.

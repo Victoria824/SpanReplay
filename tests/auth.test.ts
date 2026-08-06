@@ -33,7 +33,9 @@ describe("OIDC authorization contract", () => {
 
   it("requires a bearer authorization scheme", () => {
     expect(bearerToken("Bearer signed.jwt.value")).toBe("signed.jwt.value");
+    expect(bearerToken("bearer   signed.jwt.value")).toBe("signed.jwt.value");
     expect(() => bearerToken("Basic abc")).toThrow("Bearer token is required");
+    expect(() => bearerToken("Bearer signed.jwt.value ")).toThrow("Bearer token is required");
   });
 
   it("verifies RS256 issuer, audience, JWKS, roles, and organization claims", async () => {

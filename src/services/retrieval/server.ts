@@ -4,7 +4,7 @@ import {
   RetrievalRequestSchema,
   type RetrievedDocument,
 } from "../../contracts.js";
-import { injectDelay } from "../../failures/scenarios.js";
+import { delay, injectDelay } from "../../failures/scenarios.js";
 import { logger } from "../../telemetry/logger.js";
 import { inSpan, telemetry } from "../../telemetry/signals.js";
 
@@ -40,6 +40,7 @@ const irrelevant: RetrievedDocument[] = [
 
 export function buildRetrievalServer() {
   const app = Fastify({ loggerInstance: logger });
+  let activeRetrievals = 0;
 
   app.get("/health", async () => ({ status: "ok", service: "retrieval-service" }));
   app.get("/ready", async () => ({ status: "ready", service: "retrieval-service" }));
@@ -57,18 +58,48 @@ export function buildRetrievalServer() {
         "failure.scenario": parsed.data.scenario,
       },
       async () => {
-        await injectDelay(parsed.data.scenario, "retrieval");
-        const results = parsed.data.scenario === "irrelevant-context" ? irrelevant : documents;
-        const topScore = results[0]?.relevance ?? 0;
-        telemetry.retrieval(topScore, topScore >= 0.7 ? "relevant" : "irrelevant");
-        logger.info(
-          { document_ids: results.map((document) => document.id), top_score: topScore },
-          "retrieval completed",
-        );
-        return {
-          documents: results,
-          durationMs: Date.now() - started,
-        };
+        const configuredLimit = Number(process.env.MAX_RETRIEVAL_CONCURRENCY ?? Number.POSITIVE_INFINITY);
+        if (Number.isFinite(configuredLimit) && activeRetrievals >= configuredLimit) {
+          telemetry.retrievalAdmission("shed");
+          logger.warn({ retrieval_concurrency: activeRetrievals, concurrency_limit: configuredLimit }, "retrieval request shed");
+          return reply
+            .header("retry-after", "1")
+            .code(429)
+            .send({ error: "retrieval_capacity_exceeded", retryAfterSeconds: 1 });
+        }
+        activeRetrievals += 1;
+        telemetry.retrievalAdmission("admitted");
+        const observedConcurrency = activeRetrievals;
+        try {
+          telemetry.retrievalConcurrency(
+            observedConcurrency,
+            parsed.data.scenario === "retrieval-saturation" ? "saturation-lab" : "normal",
+          );
+          await injectDelay(parsed.data.scenario, "retrieval");
+          if (parsed.data.scenario === "retrieval-saturation") {
+            const baseDelay = Number(process.env.SATURATION_BASE_DELAY_MS ?? 20);
+            const queueDelay = Math.max(0, observedConcurrency - 4)
+              * Number(process.env.SATURATION_QUEUE_DELAY_MS ?? 30);
+            await delay(baseDelay + queueDelay);
+          }
+          const results = parsed.data.scenario === "irrelevant-context" ? irrelevant : documents;
+          const topScore = results[0]?.relevance ?? 0;
+          telemetry.retrieval(topScore, topScore >= 0.7 ? "relevant" : "irrelevant");
+          logger.info(
+            {
+              document_ids: results.map((document) => document.id),
+              top_score: topScore,
+              retrieval_concurrency: observedConcurrency,
+            },
+            "retrieval completed",
+          );
+          return {
+            documents: results,
+            durationMs: Date.now() - started,
+          };
+        } finally {
+          activeRetrievals -= 1;
+        }
       },
     );
   });

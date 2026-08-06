@@ -11,6 +11,7 @@ extensions:
     endpoint: 0.0.0.0:13133
   file_storage:
     directory: /var/lib/otelcol/storage
+    create_directory: true
     timeout: 10s
 
 processors:

@@ -6,7 +6,7 @@ RUN npm ci
 COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
 COPY packages ./packages
-RUN npm run build:services
+RUN npm run build:sdk && npm run build:services
 
 FROM node:22-alpine AS runtime
 ARG BUILD_DATE="unknown"

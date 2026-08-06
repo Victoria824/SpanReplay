@@ -1,0 +1,31 @@
+{
+  "name": "@spanreplay/observability-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Reusable Node.js OpenTelemetry bootstrap, correlated logging, and metric-cardinality policy helpers",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build"
+  },
+  "peerDependencies": {
+    "@opentelemetry/api": ">=1.9.0",
+    "@opentelemetry/auto-instrumentations-node": ">=0.60.0",
+    "@opentelemetry/exporter-metrics-otlp-http": ">=0.200.0",
+    "@opentelemetry/exporter-trace-otlp-http": ">=0.200.0",
+    "@opentelemetry/resources": ">=2.0.0",
+    "@opentelemetry/sdk-metrics": ">=2.0.0",
+    "@opentelemetry/sdk-node": ">=0.200.0",
+    "@opentelemetry/semantic-conventions": ">=1.30.0",
+    "pino": ">=9.0.0"
+  }
+}

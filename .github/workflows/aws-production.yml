@@ -1,0 +1,117 @@
+name: AWS production plan and deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Plan only, apply infrastructure, or apply and deploy workloads
+        required: true
+        default: plan
+        type: choice
+        options: [plan, apply, deploy]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: aws-production
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'ca-central-1' }}
+      TF_VAR_aws_region: ${{ vars.AWS_REGION || 'ca-central-1' }}
+      TF_VAR_environment: production
+      TF_VAR_replay_bucket_name: ${{ vars.REPLAY_BUCKET_NAME }}
+      TF_VAR_eks_oidc_provider_arn: ${{ vars.EKS_OIDC_PROVIDER_ARN }}
+      TF_VAR_eks_oidc_issuer_url: ${{ vars.EKS_OIDC_ISSUER_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate protected environment configuration
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          REPLAY_BUCKET_NAME: ${{ vars.REPLAY_BUCKET_NAME }}
+          EKS_OIDC_PROVIDER_ARN: ${{ vars.EKS_OIDC_PROVIDER_ARN }}
+          EKS_OIDC_ISSUER_URL: ${{ vars.EKS_OIDC_ISSUER_URL }}
+          EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+        run: |
+          for name in AWS_DEPLOY_ROLE_ARN TF_STATE_BUCKET REPLAY_BUCKET_NAME EKS_OIDC_PROVIDER_ARN EKS_OIDC_ISSUER_URL EKS_CLUSTER_NAME; do
+            test -n "${!name}" || { echo "Missing aws-production variable: ${name}" >&2; exit 2; }
+          done
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: "1.10.5", terraform_wrapper: false }
+      - name: Initialize remote state
+        working-directory: infrastructure/terraform/aws
+        run: >-
+          terraform init
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="key=spanreplay/aws-production.tfstate"
+          -backend-config="region=${AWS_REGION}"
+          -backend-config="use_lockfile=true"
+      - name: Plan infrastructure
+        working-directory: infrastructure/terraform/aws
+        run: terraform plan -out=/tmp/aws.tfplan
+      - name: Apply infrastructure
+        if: inputs.action != 'plan'
+        working-directory: infrastructure/terraform/aws
+        run: terraform apply -auto-approve /tmp/aws.tfplan
+      - name: Read deployment outputs
+        if: inputs.action == 'deploy'
+        id: outputs
+        working-directory: infrastructure/terraform/aws
+        run: |
+          echo "service_repository=$(terraform output -raw service_ecr_url)" >> "$GITHUB_OUTPUT"
+          echo "console_repository=$(terraform output -raw console_ecr_url)" >> "$GITHUB_OUTPUT"
+          echo "replay_bucket=$(terraform output -raw replay_bucket)" >> "$GITHUB_OUTPUT"
+          echo "kms_key=$(terraform output -raw replay_kms_key_arn)" >> "$GITHUB_OUTPUT"
+          echo "gateway_role=$(terraform output -raw gateway_irsa_role_arn)" >> "$GITHUB_OUTPUT"
+      - uses: aws-actions/amazon-ecr-login@v2
+        if: inputs.action == 'deploy'
+      - name: Build and push immutable images
+        if: inputs.action == 'deploy'
+        env:
+          SERVICE_REPOSITORY: ${{ steps.outputs.outputs.service_repository }}
+          CONSOLE_REPOSITORY: ${{ steps.outputs.outputs.console_repository }}
+        run: |
+          docker build --tag "${SERVICE_REPOSITORY}:${GITHUB_SHA}" .
+          docker build --file Dockerfile.console --tag "${CONSOLE_REPOSITORY}:${GITHUB_SHA}" .
+          docker push "${SERVICE_REPOSITORY}:${GITHUB_SHA}"
+          docker push "${CONSOLE_REPOSITORY}:${GITHUB_SHA}"
+      - uses: azure/setup-kubectl@v4
+        if: inputs.action == 'deploy'
+        with: { version: "v1.35.0" }
+      - uses: imranismail/setup-kustomize@v2
+        if: inputs.action == 'deploy'
+      - name: Render and deploy production workloads
+        if: inputs.action == 'deploy'
+        env:
+          SERVICE_REPOSITORY: ${{ steps.outputs.outputs.service_repository }}
+          CONSOLE_REPOSITORY: ${{ steps.outputs.outputs.console_repository }}
+          REPLAY_BUCKET: ${{ steps.outputs.outputs.replay_bucket }}
+          REPLAY_KMS_KEY: ${{ steps.outputs.outputs.kms_key }}
+          GATEWAY_ROLE: ${{ steps.outputs.outputs.gateway_role }}
+          AUTH0_ISSUER_BASE_URL: ${{ vars.AUTH0_ISSUER_BASE_URL }}
+          AUTH0_AUDIENCE: ${{ vars.AUTH0_AUDIENCE }}
+        run: |
+          aws eks update-kubeconfig --name "${{ vars.EKS_CLUSTER_NAME }}" --region "$AWS_REGION"
+          printf '%s\n' \
+            "replayBucket=${REPLAY_BUCKET}" \
+            "replayKmsKeyArn=${REPLAY_KMS_KEY}" \
+            "gatewayIrsaRoleArn=${GATEWAY_ROLE}" \
+            "auth0IssuerBaseUrl=${AUTH0_ISSUER_BASE_URL}" \
+            "auth0Audience=${AUTH0_AUDIENCE}" \
+            > infrastructure/kubernetes/overlays/production/production.env
+          cd infrastructure/kubernetes/overlays/production
+          kustomize edit set image \
+            "ghcr.io/victoria824/spanreplay:0.1.0=${SERVICE_REPOSITORY}:${GITHUB_SHA}" \
+            "ghcr.io/victoria824/spanreplay-console:0.1.0=${CONSOLE_REPOSITORY}:${GITHUB_SHA}"
+          kubectl apply --server-side --field-manager=spanreplay-ci -k .
+          kubectl rollout status deployment/api-gateway -n spanreplay --timeout=5m
+          kubectl rollout status deployment/agent-service -n spanreplay --timeout=5m
+          kubectl rollout status deployment/retrieval-service -n spanreplay --timeout=5m

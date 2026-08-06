@@ -1,0 +1,80 @@
+name: Datadog verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply_terraform:
+        description: Apply the reviewed Datadog Terraform plan
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: datadog-verification
+    env:
+      DD_API_KEY: ${{ secrets.DD_API_KEY }}
+      DD_APP_KEY: ${{ secrets.DD_APP_KEY }}
+      DD_SITE: ${{ vars.DD_SITE || 'datadoghq.com' }}
+      DD_ENV: ci-verification
+      TF_VAR_datadog_api_key: ${{ secrets.DD_API_KEY }}
+      TF_VAR_datadog_app_key: ${{ secrets.DD_APP_KEY }}
+      TF_VAR_datadog_api_url: ${{ vars.DD_API_URL || 'https://api.datadoghq.com/' }}
+      TF_VAR_environment: ci-verification
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate protected environment configuration
+        env:
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          for name in DD_API_KEY DD_APP_KEY AWS_DEPLOY_ROLE_ARN TF_STATE_BUCKET; do
+            test -n "${!name}" || { echo "Missing datadog-verification secret or variable: ${name}" >&2; exit 2; }
+          done
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'ca-central-1' }}
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: "1.10.5" }
+      - run: npm ci
+      - name: Plan Datadog resources
+        working-directory: infrastructure/terraform/datadog
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=spanreplay/datadog.tfstate" \
+            -backend-config="region=${{ vars.AWS_REGION || 'ca-central-1' }}" \
+            -backend-config="use_lockfile=true"
+          terraform plan -out=/tmp/datadog.tfplan
+      - name: Apply reviewed Datadog resources
+        if: inputs.apply_terraform
+        working-directory: infrastructure/terraform/datadog
+        run: terraform apply -auto-approve /tmp/datadog.tfplan
+      - name: Start stack through Datadog Agent
+        run: docker compose -f docker-compose.yml -f docker-compose.datadog.yml up --detach --build
+      - name: Wait for gateway
+        run: curl --fail --retry 60 --retry-delay 2 --retry-connrefused http://localhost:4000/health
+      - name: Verify trace, logs, metric, and Error Tracking through APIs
+        run: npm run verify:datadog
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: datadog-verification-evidence
+          path: evidence/datadog-verification.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Diagnostics
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.datadog.yml logs --no-color
+      - name: Stop stack
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.datadog.yml down --volumes

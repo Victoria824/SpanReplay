@@ -46,6 +46,9 @@ services:
       HOST_PROC: /proc
       DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT: 0.0.0.0:4317
       DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT: 0.0.0.0:4318
+      # Preserve collector-added ownership attributes (for example,
+      # platform:spanreplay) as queryable Datadog metric tags.
+      DD_OTLP_CONFIG_METRICS_RESOURCE_ATTRIBUTES_AS_TAGS: "true"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # The Agent otherwise falls back to Docker socket tailing when the host

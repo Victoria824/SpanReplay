@@ -1,0 +1,22 @@
+{
+  "verifiedAt": "2026-08-10T16:30:10.607Z",
+  "environment": "ci-verification",
+  "traceId": "837c5b9057b09f64f66de6450148bf41",
+  "trace": {
+    "spanCount": 5,
+    "services": [
+      "agent-service",
+      "api-gateway",
+      "retrieval-service"
+    ]
+  },
+  "logs": {
+    "count": 8
+  },
+  "metric": {
+    "seriesCount": 1
+  },
+  "errorTracking": {
+    "issueCount": 2
+  }
+}

@@ -114,12 +114,22 @@ const metricPromise = eventually("workflow metric", async () => {
 
 // Datadog indexes each signal independently. Poll them concurrently so the
 // verification window is bounded by the slowest backend, not their sum.
-const [trace, logs, errorTracking, metric] = await Promise.all([
+const signalNames = ["trace", "logs", "errorTracking", "metric"] as const;
+const signalResults = await Promise.allSettled([
   tracePromise,
   logsPromise,
   errorTrackingPromise,
   metricPromise,
 ]);
+const failures = signalResults.flatMap((result, index) =>
+  result.status === "rejected" ? [`${signalNames[index]}: ${String(result.reason)}`] : [],
+);
+if (failures.length > 0) throw new Error(`Datadog verification failed:\n- ${failures.join("\n- ")}`);
+
+const [trace, logs, errorTracking, metric] = signalResults.map((result) =>
+  result.status === "fulfilled" ? result.value : null,
+);
+if (!trace || !logs || !errorTracking || !metric) throw new Error("Datadog signal result was unexpectedly empty");
 
 const evidence = {
   verifiedAt: new Date().toISOString(),

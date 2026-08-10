@@ -95,8 +95,10 @@ for (const [scenarioIndex, scenario] of scenarios.map((item) => item.value).filt
     };
     const last = base.steps.at(-1);
     if (last) last.status = base.status === "blocked" ? "blocked" : "error";
-    base.evaluation.validationPassed = false;
-    base.evaluation.score = 0.2;
+    base.evaluation.grounded = scenario !== "irrelevant-context";
+    base.evaluation.toolSucceeded = scenario !== "tool-error" && scenario !== "error-tracking";
+    base.evaluation.validationPassed = scenario !== "validation-failure";
+    base.evaluation.score = scenario === "irrelevant-context" ? 0.2 : 0.96;
   }
   seedResults[scenario] = base;
 }
@@ -192,7 +194,7 @@ export default function App() {
         </article>
 
         <aside id="signals">
-          <article className="signals"><div className="card-head"><p>Correlated signals</p><span>trace_id linked</span></div><div className="metrics"><div><small>trace latency</small><strong>{totalLatency} ms</strong><em>observed workflow</em></div><div><small>estimated cost</small><strong>${result.usage.estimatedCostUsd.toFixed(5)}</strong><em>{result.usage.inputTokens + result.usage.outputTokens} tokens</em></div><div><small>grounding</small><strong>{Math.round(result.evaluation.score * 100)}%</strong><em>{result.evaluation.grounded ? "passed" : "blocked"}</em></div><div><small>tool path</small><strong>{result.steps.length}</strong><em>{result.evaluation.toolSucceeded ? "successful" : "incomplete"}</em></div></div></article>
+          <article className="signals"><div className="card-head"><p>Correlated signals</p><span>trace_id linked</span></div><div className="metrics"><div><small>trace latency</small><strong>{totalLatency} ms</strong><em>observed workflow</em></div><div><small>estimated cost</small><strong>${result.usage.estimatedCostUsd.toFixed(5)}</strong><em>{result.usage.inputTokens + result.usage.outputTokens} tokens</em></div><div><small>evaluation score</small><strong>{Math.round(result.evaluation.score * 100)}%</strong><em>{result.evaluation.grounded ? "grounding passed" : "grounding blocked"}</em></div><div><small>tool path</small><strong>{result.steps.length}</strong><em>{result.evaluation.toolSucceeded ? "successful" : "incomplete"}</em></div></div></article>
           <article className="log"><div className="card-head"><p>Structured incident event</p><span>JSON / Pino</span></div><pre>{JSON.stringify({level: result.status === "completed" ? 30 : 50, service: result.failure?.service ?? "agent-service", trace_id: result.traceId, scenario: result.metadata.scenario, status: result.status, failure_category: result.failure?.category ?? null, prompt_version: result.metadata.promptVersion}, null, 2)}</pre></article>
         </aside>
       </section>

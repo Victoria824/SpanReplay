@@ -24,11 +24,18 @@ async function workflow(index: number) {
 
 async function eventually(description: string, operation: () => Promise<boolean>, timeoutMs = 90_000) {
   const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
   while (Date.now() < deadline) {
-    if (await operation()) return;
+    try {
+      if (await operation()) return;
+    } catch (error) {
+      lastError = error;
+    }
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
-  throw new Error(`Timed out waiting for ${description}`);
+  throw new Error(
+    `Timed out waiting for ${description}${lastError instanceof Error ? `: ${lastError.message}` : ""}`,
+  );
 }
 
 let tempoStopped = false;

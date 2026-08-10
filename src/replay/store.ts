@@ -37,10 +37,12 @@ export class ReplayStore implements ReplayRepository {
 
   async list(limit = 25): Promise<ReplayRecord[]> {
     await mkdir(this.directory, { recursive: true });
-    const files = (await readdir(this.directory))
-      .filter((name) => /^[a-f0-9]{32}\.json$/.test(name));
+    const traceIds = (await readdir(this.directory)).flatMap((name) => {
+      const match = /^([a-f0-9]{32})\.json$/.exec(name);
+      return match?.[1] ? [match[1]] : [];
+    });
     const records = await Promise.all(
-      files.map(async (name) => JSON.parse(await readFile(path.join(this.directory, name), "utf8")) as ReplayRecord),
+      traceIds.map(async (traceId) => JSON.parse(await readFile(this.file(traceId), "utf8")) as ReplayRecord),
     );
     return records
       .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))

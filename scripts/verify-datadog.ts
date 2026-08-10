@@ -58,6 +58,21 @@ if (!workflowResponse.ok) throw new Error(`Workflow trigger returned ${workflowR
 const workflow = await workflowResponse.json() as { traceId: string; status: string };
 if (workflow.status !== "failed") throw new Error(`Expected injected failure, received ${workflow.status}`);
 
+// The Node SDK exports counters cumulatively. Datadog stores but omits the
+// first cumulative point, then reports later changes as count deltas. Let the
+// injected failure reach one export cycle before producing the second point.
+await new Promise((resolve) => setTimeout(resolve, 6_000));
+const metricDeltaResponse = await fetch(`${gateway}/api/workflows`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ question: "confirm Datadog workflow counter delta", scenario: "healthy" }),
+});
+if (!metricDeltaResponse.ok) throw new Error(`Metric delta workflow returned ${metricDeltaResponse.status}`);
+const metricDeltaWorkflow = await metricDeltaResponse.json() as { status: string };
+if (metricDeltaWorkflow.status !== "completed") {
+  throw new Error(`Expected metric delta workflow to complete, received ${metricDeltaWorkflow.status}`);
+}
+
 const tracePromise = eventually("cross-service trace", async () => {
   const response = await datadog("/api/v2/spans/events/search", {
     data: {

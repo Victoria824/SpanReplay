@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/Victoria824/SpanReplay/actions/workflows/ci.yml/badge.svg)](https://github.com/Victoria824/SpanReplay/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/Victoria824/SpanReplay/actions/workflows/codeql.yml/badge.svg)](https://github.com/Victoria824/SpanReplay/actions/workflows/codeql.yml)
+[![Datadog verification](https://github.com/Victoria824/SpanReplay/actions/workflows/datadog-verification.yml/badge.svg)](https://github.com/Victoria824/SpanReplay/actions/workflows/datadog-verification.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-enabled-4f62ad.svg)](https://opentelemetry.io/)
 
@@ -12,6 +13,10 @@ SpanReplay is an executable reference implementation and incident lab for produc
 ![SpanReplay Console showing a failed tool span and correlated signals](docs/assets/spanreplay-console.jpg)
 
 [Watch the 66-second Console walkthrough](docs/assets/spanreplay-demo.mp4) — a concise tour of cross-service traces, correlated signals, failure evidence, and deterministic replay.
+
+![Datadog Trace Explorer showing the verified SpanReplay trace](docs/assets/spanreplay-datadog.png)
+
+Real Datadog US1 trial evidence: [workflow run #31409061260](https://github.com/Victoria824/SpanReplay/actions/runs/31409061260) verified an indexed cross-service trace spanning `api-gateway`, `agent-service`, and `retrieval-service`, plus 8 correlated logs, 1 custom-metric series, and 2 grouped Error Tracking issues. The assertion output is checked in as [machine-readable evidence](evidence/datadog-verification.json).
 
 It is intentionally vendor-neutral. The default stack uses OpenTelemetry, Tempo, Prometheus, Loki, Vector, and Grafana; an optional Datadog path includes importable dashboards, monitors, and Terraform.
 
@@ -130,15 +135,16 @@ For production, configure Auth0/OIDC instead of the shared key. Verified tenant 
 
 ## Datadog path
 
-The repository includes:
+The repository includes and has exercised:
 
 - A Datadog-compatible dashboard JSON.
 - Terraform-managed monitors, SLO, and dashboard.
 - An optional OpenTelemetry Collector → Datadog Agent configuration.
 - A stable service/tag taxonomy for cross-team adoption.
 - A grouped backend Error Tracking scenario, normalized log pipeline, and new-issue monitor.
+- A protected GitHub verification workflow that passed against a real Datadog US1 trial organization without AWS or EKS.
 
-See [Datadog integration](docs/datadog-integration.md).
+The dedicated application key is read/query-only and limited to APM, logs, metrics, timeseries queries, and Error Tracking. See [Datadog integration](docs/datadog-integration.md) for the exact acceptance contract and account setup.
 
 ## Repository map
 

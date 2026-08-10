@@ -63,7 +63,7 @@ const tracePromise = eventually("cross-service trace", async () => {
     data: {
       type: "search_request",
       attributes: {
-        filter: { from: "now-15m", to: "now", query: `@trace_id:${workflow.traceId}` },
+        filter: { from: "now-15m", to: "now", query: `trace_id:${workflow.traceId}` },
         options: { timezone: "GMT" },
         page: { limit: 100 },
         sort: "timestamp",
@@ -78,7 +78,7 @@ const tracePromise = eventually("cross-service trace", async () => {
 
 const logsPromise = eventually("trace-correlated logs", async () => {
   const response = await datadog("/api/v2/logs/events/search", {
-    filter: { from: "now-15m", to: "now", query: `@trace_id:${workflow.traceId}` },
+    filter: { from: "now-15m", to: "now", query: `trace_id:${workflow.traceId}` },
     page: { limit: 100 },
     sort: "timestamp",
   });

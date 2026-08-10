@@ -11,6 +11,8 @@ SpanReplay is an executable reference implementation and incident lab for produc
 
 ![SpanReplay Console showing a failed tool span and correlated signals](docs/assets/spanreplay-console.jpg)
 
+[Watch the 66-second Console walkthrough](docs/assets/spanreplay-demo.mp4) — a concise tour of cross-service traces, correlated signals, failure evidence, and deterministic replay.
+
 It is intentionally vendor-neutral. The default stack uses OpenTelemetry, Tempo, Prometheus, Loki, Vector, and Grafana; an optional Datadog path includes importable dashboards, monitors, and Terraform.
 
 > No model API key is required. The incident lab is deterministic, so every failure can be reproduced in CI and during an interview demo.

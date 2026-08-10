@@ -48,6 +48,10 @@ services:
       DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT: 0.0.0.0:4318
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # The Agent otherwise falls back to Docker socket tailing when the host
+      # JSON log path is absent inside the container. Mounting the path makes
+      # collection deterministic on GitHub-hosted Linux runners.
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /proc/:/host/proc/:ro
       - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
     healthcheck:

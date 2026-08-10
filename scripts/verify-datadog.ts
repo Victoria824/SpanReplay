@@ -58,7 +58,7 @@ if (!workflowResponse.ok) throw new Error(`Workflow trigger returned ${workflowR
 const workflow = await workflowResponse.json() as { traceId: string; status: string };
 if (workflow.status !== "failed") throw new Error(`Expected injected failure, received ${workflow.status}`);
 
-const trace = await eventually("cross-service trace", async () => {
+const tracePromise = eventually("cross-service trace", async () => {
   const response = await datadog("/api/v2/spans/events/search", {
     data: {
       type: "search_request",
@@ -76,7 +76,7 @@ const trace = await eventually("cross-service trace", async () => {
     : null;
 });
 
-const logs = await eventually("trace-correlated logs", async () => {
+const logsPromise = eventually("trace-correlated logs", async () => {
   const response = await datadog("/api/v2/logs/events/search", {
     filter: { from: "now-15m", to: "now", query: `@trace_id:${workflow.traceId}` },
     page: { limit: 100 },
@@ -85,7 +85,7 @@ const logs = await eventually("trace-correlated logs", async () => {
   return (response.data?.length ?? 0) > 0 ? { count: response.data?.length ?? 0 } : null;
 });
 
-const errorTracking = await eventually("Error Tracking issue", async () => {
+const errorTrackingPromise = eventually("Error Tracking issue", async () => {
   const now = Date.now();
   const response = await datadog("/api/v2/error-tracking/issues/search", {
     data: {
@@ -105,12 +105,21 @@ const metricUrl = new URL(`${apiBase}/api/v1/query`);
 metricUrl.searchParams.set("from", String(Math.floor(Date.now() / 1000) - 900));
 metricUrl.searchParams.set("to", String(Math.floor(Date.now() / 1000)));
 metricUrl.searchParams.set("query", "sum:ai.workflow.runs{platform:spanreplay}.as_count()");
-const metric = await eventually("workflow metric", async () => {
+const metricPromise = eventually("workflow metric", async () => {
   const response = await fetch(metricUrl, { headers, signal: AbortSignal.timeout(15_000) });
   if (!response.ok) throw new Error(`Datadog metric query returned ${response.status}: ${await response.text()}`);
   const payload = await response.json() as { series?: unknown[] };
   return (payload.series?.length ?? 0) > 0 ? { seriesCount: payload.series?.length ?? 0 } : null;
 });
+
+// Datadog indexes each signal independently. Poll them concurrently so the
+// verification window is bounded by the slowest backend, not their sum.
+const [trace, logs, errorTracking, metric] = await Promise.all([
+  tracePromise,
+  logsPromise,
+  errorTrackingPromise,
+  metricPromise,
+]);
 
 const evidence = {
   verifiedAt: new Date().toISOString(),

@@ -1,0 +1,14 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: api-gateway, namespace: spanreplay }
+spec:
+  template:
+    spec:
+      containers:
+        - name: service
+          env:
+            - { name: AUTH0_ISSUER_BASE_URL, value: "https://YOUR_TENANT.auth0.com/" }
+            - { name: AUTH0_AUDIENCE, value: "https://spanreplay-api" }
+            - { name: AUTH0_ROLES_CLAIM, value: "https://spanreplay.example.com/roles" }
+            - { name: AUTH0_TENANT_CLAIM, value: "org_id" }
+            - { name: AUTH0_REQUIRE_TENANT, value: "true" }

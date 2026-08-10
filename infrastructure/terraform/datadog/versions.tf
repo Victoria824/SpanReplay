@@ -1,6 +1,8 @@
 terraform {
   required_version = ">= 1.7.0"
 
+  backend "s3" {}
+
   required_providers {
     datadog = {
       source  = "DataDog/datadog"
@@ -14,4 +16,3 @@ provider "datadog" {
   app_key = var.datadog_app_key
   api_url = var.datadog_api_url
 }
-

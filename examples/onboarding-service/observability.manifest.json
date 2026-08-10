@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "1.0",
+  "service": {
+    "name": "orders-service",
+    "owner": "commerce-platform",
+    "tier": 2,
+    "runbook": "https://runbooks.example.com/orders-service"
+  },
+  "signals": {
+    "traces": ["orders.list"],
+    "metrics": [
+      { "name": "orders.requests", "attributes": ["operation", "outcome"] }
+    ],
+    "logs": { "requiredFields": ["service", "environment", "trace_id"] },
+    "errors": { "requiredFields": ["error.type", "error.message", "error.stack", "error.fingerprint"] }
+  },
+  "slo": { "objective": "successful order reads", "target": 99.9, "window": "30d" }
+}

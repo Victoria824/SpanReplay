@@ -37,6 +37,17 @@ data:
         endpoint: 0.0.0.0:8889
         namespace: spanreplay
     service:
+      telemetry:
+        metrics:
+          level: detailed
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: 0.0.0.0
+                    port: 8888
+                    without_type_suffix: true
+                    without_units: true
       pipelines:
         traces:
           receivers: [otlp]
@@ -74,12 +85,13 @@ spec:
           type: RuntimeDefault
       containers:
         - name: collector
-          image: otel/opentelemetry-collector-contrib:0.138.0
+          image: otel/opentelemetry-collector-contrib:0.157.0
           args: ["--config=/etc/otelcol/config.yaml"]
           ports:
             - { name: otlp-grpc, containerPort: 4317 }
             - { name: otlp-http, containerPort: 4318 }
             - { name: metrics, containerPort: 8889 }
+            - { name: internal-metrics, containerPort: 8888 }
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -113,6 +125,7 @@ spec:
     - { name: otlp-grpc, port: 4317, targetPort: otlp-grpc }
     - { name: otlp-http, port: 4318, targetPort: otlp-http }
     - { name: metrics, port: 8889, targetPort: metrics }
+    - { name: internal-metrics, port: 8888, targetPort: internal-metrics }
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

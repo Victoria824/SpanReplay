@@ -5,6 +5,12 @@ x-service: &service
     context: .
     dockerfile: Dockerfile
   restart: unless-stopped
+  init: true
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
   environment: &service-environment
     NODE_ENV: production
     DEPLOYMENT_ENVIRONMENT: local
@@ -26,12 +32,25 @@ x-service: &service
   networks: [spanreplay]
 
 services:
+  otel-queue-init:
+    image: busybox:1.37.0
+    command: ["sh", "-c", "mkdir -p /var/lib/otelcol/storage && chmod 0770 /var/lib/otelcol /var/lib/otelcol/storage && chown -R 10001:10001 /var/lib/otelcol"]
+    user: "0:0"
+    restart: "no"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - otel-queue:/var/lib/otelcol
+    networks: [spanreplay]
+
   retrieval-service:
     <<: *service
     environment:
       <<: *service-environment
       SERVICE_NAME: retrieval-service
       PORT: 4002
+    ports: ["127.0.0.1:4002:4002"]
     labels:
       com.spanreplay.platform: spanreplay
       com.spanreplay.service: retrieval-service
@@ -78,20 +97,34 @@ services:
       args:
         VITE_API_URL: http://localhost:4000
     ports: ["127.0.0.1:4173:8080"]
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /var/cache/nginx:size=32m,mode=0770
+      - /var/run:size=8m,mode=0770
+      - /tmp:size=16m,mode=1777
     depends_on:
       api-gateway:
         condition: service_healthy
     networks: [spanreplay]
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.138.0
+    image: otel/opentelemetry-collector-contrib:0.157.0
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
       - ./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - otel-queue:/var/lib/otelcol
+    depends_on:
+      otel-queue-init:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:4317:4317"
       - "127.0.0.1:4318:4318"
       - "127.0.0.1:8889:8889"
+      - "127.0.0.1:8888:8888"
+      - "127.0.0.1:13133:13133"
     networks: [spanreplay]
 
   prometheus:
@@ -99,6 +132,7 @@ services:
     command: ["--config.file=/etc/prometheus/prometheus.yml"]
     volumes:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alerting.rules.yml:/etc/prometheus/alerting.rules.yml:ro
     ports: ["127.0.0.1:9090:9090"]
     networks: [spanreplay]
 
@@ -152,3 +186,4 @@ volumes:
   tempo-data: {}
   loki-data: {}
   grafana-data: {}
+  otel-queue: {}

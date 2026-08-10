@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0",
+  "service": { "name": "agent-service", "owner": "ai-platform", "tier": 1, "runbook": "docs/incident-playbook.md" },
+  "signals": {
+    "traces": ["invoke_agent incident-assistant", "gen_ai.chat", "execute_tool incident.ticket.lookup"],
+    "metrics": [
+      { "name": "ai.workflow.runs", "attributes": ["workflow.status", "failure.scenario"] },
+      { "name": "gen_ai.client.token.usage", "attributes": ["gen_ai.token.type", "gen_ai.request.model", "gen_ai.provider.name"] }
+    ],
+    "logs": { "requiredFields": ["service", "environment", "trace_id"] },
+    "errors": { "requiredFields": ["error.type", "error.message", "error.stack", "error.fingerprint"] }
+  },
+  "slo": { "objective": "successful agent execution", "target": 99, "window": "30d" }
+}

@@ -33,6 +33,8 @@ Record exceptions on the smallest responsible span and propagate the error statu
 | `gen_ai.client.token.usage` | counter | token type, model, provider |
 | `ai.workflow.estimated.cost` | counter, USD | model |
 | `ai.retrieval.relevance` | histogram | outcome |
+| `ai.retrieval.concurrency` | histogram | bounded mode |
+| `ai.retrieval.admissions` | counter | admitted or shed |
 | `ai.tool.calls` | counter | tool name, outcome |
 | `ai.validation.failures` | counter | bounded reason enum |
 | `ai.replay.runs` | counter | mode, outcome |

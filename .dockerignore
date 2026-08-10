@@ -4,6 +4,13 @@ console/dist
 .git
 .github
 data/replays
+coverage
+evidence
+outputs
+*.tgz
 *.log
 .terraform
 *.tfstate*
+.env
+.env.*
+!.env.example

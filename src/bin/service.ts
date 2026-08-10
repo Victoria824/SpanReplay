@@ -6,7 +6,17 @@ await startTelemetry(serviceName);
 const configuration = {
   "api-gateway": {
     port: Number(process.env.PORT ?? 4000),
-    load: async () => (await import("../services/gateway/server.js")).buildGatewayServer(),
+    load: async () => {
+      const [{ buildGatewayServer }, { ReplayStore }] = await Promise.all([
+        import("../services/gateway/server.js"),
+        import("../replay/store.js"),
+      ]);
+      if ((process.env.REPLAY_STORE_BACKEND ?? "filesystem") === "filesystem") {
+        return buildGatewayServer(new ReplayStore());
+      }
+      const { createReplayRepositoryFromEnv } = await import("../replay/s3-store.js");
+      return buildGatewayServer(createReplayRepositoryFromEnv());
+    },
   },
   "agent-service": {
     port: Number(process.env.PORT ?? 4001),

@@ -1,25 +1,83 @@
 services:
+  retrieval-service:
+    labels:
+      com.datadoghq.tags.service: retrieval-service
+      com.datadoghq.tags.env: ${DD_ENV:-local}
+      com.datadoghq.tags.version: ${DD_VERSION:-0.1.0}
+
+  agent-service:
+    labels:
+      com.datadoghq.tags.service: agent-service
+      com.datadoghq.tags.env: ${DD_ENV:-local}
+      com.datadoghq.tags.version: ${DD_VERSION:-0.1.0}
+
+  api-gateway:
+    labels:
+      com.datadoghq.tags.service: api-gateway
+      com.datadoghq.tags.env: ${DD_ENV:-local}
+      com.datadoghq.tags.version: ${DD_VERSION:-0.1.0}
+
   otel-collector:
-    command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
       - ./observability/otel-collector.datadog.yaml:/etc/otelcol/config.yaml:ro
+    depends_on:
+      datadog-otlp-probe:
+        condition: service_completed_successfully
 
   datadog-agent:
-    image: gcr.io/datadoghq/agent:7
+    image: ${DD_AGENT_IMAGE:-gcr.io/datadoghq/agent:7}
+    init: true
+    security_opt:
+      - no-new-privileges:true
     environment:
-      DD_API_KEY: ${DD_API_KEY:?Set DD_API_KEY before enabling the Datadog profile}
+      DD_API_KEY: ${DD_API_KEY:?Export DD_API_KEY before starting the Datadog overlay}
       DD_SITE: ${DD_SITE:-datadoghq.com}
-      DD_ENV: ${DEPLOYMENT_ENVIRONMENT:-local}
-      DD_SERVICE: spanreplay
-      DD_VERSION: 0.1.0
+      DD_ENV: ${DD_ENV:-local}
+      DD_VERSION: ${DD_VERSION:-0.1.0}
+      DD_TAGS: platform:spanreplay team:ai-platform
       DD_APM_ENABLED: "true"
       DD_APM_NON_LOCAL_TRAFFIC: "true"
-      DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT: "0.0.0.0:4317"
       DD_LOGS_ENABLED: "true"
       DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
-      DD_CONTAINER_EXCLUDE_LOGS: "name:datadog-agent"
+      DD_CONTAINER_EXCLUDE_LOGS: name:datadog-agent
+      DD_PROCESS_AGENT_ENABLED: "false"
+      # Agent 7.61+ can fail to start its OTLP pipelines in Docker when it
+      # resolves host processes through the /host/proc bind mount.
+      HOST_PROC: /proc
+      DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT: 0.0.0.0:4317
+      DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_HTTP_ENDPOINT: 0.0.0.0:4318
+      # Preserve collector-added ownership attributes (for example,
+      # platform:spanreplay) as queryable Datadog metric tags.
+      DD_OTLP_CONFIG_METRICS_RESOURCE_ATTRIBUTES_AS_TAGS: "true"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # The Agent otherwise falls back to Docker socket tailing when the host
+      # JSON log path is absent inside the container. Mounting the path makes
+      # collection deterministic on GitHub-hosted Linux runners.
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /proc/:/host/proc/:ro
       - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
+    healthcheck:
+      test: ["CMD", "agent", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks: [spanreplay]
+
+  datadog-otlp-probe:
+    image: busybox:1.36
+    command:
+      - sh
+      - -c
+      - |
+        for attempt in $$(seq 1 90); do
+          nc -z datadog-agent 4317 && exit 0
+          sleep 1
+        done
+        echo "Datadog Agent OTLP gRPC receiver did not become ready" >&2
+        exit 1
+    depends_on:
+      datadog-agent:
+        condition: service_healthy
     networks: [spanreplay]

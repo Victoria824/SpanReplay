@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: api-gateway, namespace: spanreplay }
+spec:
+  replicas: 2
+  strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
+  template:
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector: { matchLabels: { app.kubernetes.io/name: api-gateway } }
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector: { matchLabels: { app.kubernetes.io/name: api-gateway } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: agent-service, namespace: spanreplay }
+spec:
+  strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
+  template:
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector: { matchLabels: { app.kubernetes.io/name: agent-service } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: retrieval-service, namespace: spanreplay }
+spec:
+  strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
+  template:
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector: { matchLabels: { app.kubernetes.io/name: retrieval-service } }
+      containers:
+        - name: service
+          env:
+            - { name: MAX_RETRIEVAL_CONCURRENCY, value: "32" }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: replay-console, namespace: spanreplay }
+spec:
+  replicas: 2
+  strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
+  template:
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector: { matchLabels: { app.kubernetes.io/name: replay-console } }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: replay-records, namespace: spanreplay }
+$patch: delete

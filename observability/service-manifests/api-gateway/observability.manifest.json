@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "1.0",
+  "service": { "name": "api-gateway", "owner": "ai-platform", "tier": 1, "runbook": "docs/incident-playbook.md" },
+  "signals": {
+    "traces": ["spanreplay.workflow", "replay_workflow fixture"],
+    "metrics": [{ "name": "ai.replay.runs", "attributes": ["replay.mode", "replay.outcome"] }],
+    "logs": { "requiredFields": ["service", "environment", "trace_id"] },
+    "errors": { "requiredFields": ["error.type", "error.message", "error.stack", "error.fingerprint"] }
+  },
+  "slo": { "objective": "workflow availability", "target": 99, "window": "30d" }
+}

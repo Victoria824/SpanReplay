@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -49,5 +49,8 @@ describe("ReplayStore", () => {
     const file = await stat(path.join(directory, `${traceId}.json`));
     expect(file.mode & 0o777).toBe(0o600);
     await expect(store.get("../../etc/passwd")).rejects.toThrow("Invalid trace id");
+
+    await writeFile(path.join(directory, "untrusted-name.json"), "not replay evidence");
+    await expect(store.list()).resolves.toMatchObject([{ originalTraceId: traceId }]);
   });
 });

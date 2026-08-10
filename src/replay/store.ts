@@ -14,7 +14,10 @@ export class ReplayStore implements ReplayRepository {
 
   private file(traceId: string): string {
     if (!replayTraceIdPattern.test(traceId)) throw new Error("Invalid trace id");
-    return path.join(this.directory, `${traceId}.json`);
+    const replayRoot = `${path.resolve(this.directory)}${path.sep}`;
+    const candidate = path.resolve(replayRoot, `${traceId}.json`);
+    if (!candidate.startsWith(replayRoot)) throw new Error("Replay path escaped storage root");
+    return candidate;
   }
 
   async save(

@@ -24,4 +24,4 @@ The included S3 repository and AWS Terraform module provide KMS encryption, vers
 - Prompt injection embedded in retained documents.
 - Replay drift caused by model/provider/config changes.
 
-The starter kit addresses the first three in its demo boundary and documents the remaining controls rather than presenting them as solved.
+This reference implementation addresses the first three in its executable boundary and documents the remaining controls rather than presenting them as solved.

@@ -12,7 +12,7 @@
 2. Authenticate `gh auth login` and an AWS administrator session. Run `infrastructure/terraform/aws-bootstrap` after reviewing its plan.
 3. Export the bootstrap outputs, EKS/Auth0 values, and newly created Datadog API/application keys under the names accepted by `scripts/configure-cloud-accounts.sh`. Set `DD_SITE` and `DD_API_URL` together for non-US Datadog sites.
 4. Run the script. It creates the `aws-production` and `datadog-verification` GitHub environments, stores only Datadog keys as encrypted secrets, and stores non-secret deployment metadata as environment variables.
-5. Run the Datadog workflow with Terraform apply disabled first. Review the plan, then rerun with apply enabled. Run AWS `plan`, then `apply`, and use `deploy` only after both plans are approved.
+5. For a Datadog-only trial, run the Datadog workflow with Terraform mode `none`; this performs real four-signal verification without AWS. For persistent Terraform management, run mode `plan`, review it, then rerun mode `apply`. Run AWS `plan`, then `apply`, and use `deploy` only after both plans are approved.
 
 The configuration script expects these shell variables (values shown are placeholders):
 

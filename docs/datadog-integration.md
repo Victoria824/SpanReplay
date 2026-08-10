@@ -16,7 +16,7 @@ Services export OTLP to the collector. The alternate collector configuration for
 
 The verifier injects the stable backend exception and polls the official Datadog APIs until it proves all four acceptance conditions: one trace contains gateway/agent/retrieval services, a structured log correlates by trace ID, the workflow metric is queryable, and Error Tracking contains the grouped backend issue. It writes owner-only evidence to `evidence/datadog-verification.json` only after all assertions pass.
 
-For repeatable external evidence, configure the protected GitHub `datadog-verification` environment with `DD_API_KEY`, `DD_APP_KEY`, and optional `DD_SITE`, then run the manual Datadog verification workflow. Terraform apply is a separate explicit input; leaving it false produces a plan without mutating the account. `scripts/configure-cloud-accounts.sh` creates both protected environment boundaries and transfers these keys through standard input, so they do not appear in command arguments or repository files.
+For repeatable external evidence, configure the protected GitHub `datadog-verification` environment with `DD_API_KEY`, `DD_APP_KEY`, and optional `DD_SITE`, then run the manual Datadog verification workflow. Select Terraform mode `none` to prove traces, metrics, logs, and Error Tracking without any AWS dependency. Modes `plan` and `apply` use the protected AWS OIDC role and S3 state; `apply` is the only mode that mutates Datadog configuration. `scripts/configure-cloud-accounts.sh` creates both protected environment boundaries and transfers these keys through standard input, so they do not appear in command arguments or repository files.
 
 ## Provision monitors, SLO, and dashboard
 

@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - .github/workflows/datadog-verification.yml
+      - docker-compose.datadog.yml
+      - observability/otel-collector.datadog.yaml
+      - scripts/verify-datadog.ts
   workflow_dispatch:
     inputs:
       terraform_mode:

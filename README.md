@@ -7,7 +7,9 @@
 
 **OpenTelemetry observability and privacy-aware failure replay for production AI agents.**
 
-SpanReplay is an executable reference stack for diagnosing LLM and agent workflows across service boundaries. It combines distributed traces, structured logs, AI-specific metrics, SLOs, controlled failure injection, and deterministic replay in one local environment.
+SpanReplay is an executable reference implementation and incident lab for production AI-agent observability and deterministic failure replay. It diagnoses LLM and agent workflows across service boundaries by combining distributed traces, structured logs, AI-specific metrics, SLOs, controlled failure injection, and replayable evidence.
+
+![SpanReplay Console showing a failed tool span and correlated signals](docs/assets/spanreplay-console.jpg)
 
 It is intentionally vendor-neutral. The default stack uses OpenTelemetry, Tempo, Prometheus, Loki, Vector, and Grafana; an optional Datadog path includes importable dashboards, monitors, and Terraform.
 
@@ -164,7 +166,7 @@ The default Kubernetes manifest is a local/reference deployment. Its production 
 
 ## Scope and non-goals
 
-SpanReplay is a portfolio-quality starter kit and incident lab, not a hosted observability SaaS. The simulated model keeps the project reproducible and free to run; adapters for real providers should preserve the same instrumentation and privacy boundaries.
+SpanReplay is an executable reference implementation and incident lab, not a hosted observability SaaS. The simulated model keeps the project reproducible and free to run; adapters for real providers should preserve the same instrumentation and privacy boundaries.
 
 The tool call is intentionally an in-process simulated adapter boundary, not a separately
 deployed worker service. This keeps the incident lab deterministic while making the boundary

@@ -32,6 +32,18 @@ x-service: &service
   networks: [spanreplay]
 
 services:
+  otel-queue-init:
+    image: busybox:1.37.0
+    command: ["sh", "-c", "mkdir -p /var/lib/otelcol/storage && chmod 0770 /var/lib/otelcol /var/lib/otelcol/storage && chown -R 10001:10001 /var/lib/otelcol"]
+    user: "0:0"
+    restart: "no"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - otel-queue:/var/lib/otelcol
+    networks: [spanreplay]
+
   retrieval-service:
     <<: *service
     environment:
@@ -104,6 +116,9 @@ services:
     volumes:
       - ./observability/otel-collector.yaml:/etc/otelcol/config.yaml:ro
       - otel-queue:/var/lib/otelcol
+    depends_on:
+      otel-queue-init:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:4317:4317"
       - "127.0.0.1:4318:4318"

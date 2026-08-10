@@ -48,16 +48,19 @@ describe.skipIf(!enabled)("observability stack", () => {
     expect(workflow.status).toBe("completed");
     expect(workflow.traceId).toMatch(/^[a-f0-9]{32}$/);
 
-    const tempoTrace = await eventually("Tempo trace ingestion", async () => {
+    const expectedServices = ["api-gateway", "agent-service", "retrieval-service"];
+    const tempoTrace = await eventually("complete three-service Tempo trace ingestion", async () => {
       const response = await fetch(`${tempoUrl}/api/traces/${workflow.traceId}`);
       if (response.status === 404) return undefined;
       if (!response.ok) throw new Error(`Tempo returned ${response.status}`);
-      return response.json();
+      const trace = await response.json();
+      const serializedTrace = JSON.stringify(trace);
+      return expectedServices.every((service) => serializedTrace.includes(service))
+        ? trace
+        : undefined;
     });
     const traceJson = JSON.stringify(tempoTrace);
-    expect(traceJson).toContain("api-gateway");
-    expect(traceJson).toContain("agent-service");
-    expect(traceJson).toContain("retrieval-service");
+    for (const service of expectedServices) expect(traceJson).toContain(service);
 
     const prometheusResult = await eventually("Prometheus workflow metric", async () => {
       const query = encodeURIComponent("sum(spanreplay_ai_workflow_runs_total)");
